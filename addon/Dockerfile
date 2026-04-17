@@ -18,7 +18,6 @@ COPY src/Workflow.Persistence/Workflow.Persistence.csproj ./src/Workflow.Persist
 RUN dotnet restore ./WorkflowServer.sln
 
 COPY src ./src
-COPY src/Workflow.Web/Frontend/dist ./src/Workflow.Web/wwwroot
 
 RUN \
     case "${TARGETARCH}" in \
