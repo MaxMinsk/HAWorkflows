@@ -9,7 +9,7 @@ WORKDIR /src/Workflow.Web/Frontend
 COPY src/Workflow.Web/Frontend/package.json ./
 COPY src/Workflow.Web/Frontend/package-lock.json ./
 
-RUN npm ci --include=dev --no-audit --no-fund || npm install --include=dev --no-audit --no-fund
+RUN npm install --include=dev --no-audit --no-fund
 
 COPY src/Workflow.Web/Frontend ./
 
