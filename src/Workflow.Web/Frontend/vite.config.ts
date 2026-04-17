@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  base: "./",
   plugins: [react()],
   build: {
     outDir: resolve(rootDir, "../wwwroot"),

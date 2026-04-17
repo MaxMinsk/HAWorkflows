@@ -11,6 +11,7 @@ boot: auto
 init: false
 ingress: true
 ingress_port: 8099
+ingress_entry: /
 panel_icon: mdi:source-branch
 image: ghcr.io/maxminsk/haworkflows
 options:

@@ -15,7 +15,7 @@ import {
  */
 export function createWorkflowApiClient(storage: Storage = window.localStorage): WorkflowApiClient {
   const configuredApiBaseUrl = storage.getItem("workflow.api.baseUrl");
-  const apiBaseUrl = (configuredApiBaseUrl || "/api").replace(/\/+$/, "");
+  const apiBaseUrl = (configuredApiBaseUrl || "api").replace(/\/+$/, "");
 
   async function request<TResponse>(path: string, options?: RequestInit): Promise<TResponse> {
     const response = await fetch(`${apiBaseUrl}${path}`, options);
