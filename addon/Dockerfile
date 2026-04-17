@@ -2,19 +2,6 @@
 
 ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
 
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
-
-WORKDIR /src/Workflow.Web/Frontend
-
-COPY src/Workflow.Web/Frontend/package.json ./
-COPY src/Workflow.Web/Frontend/package-lock.json ./
-
-RUN npm install --include=dev --no-audit --no-fund
-
-COPY src/Workflow.Web/Frontend ./
-
-RUN npm run build
-
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS dotnet-build
 
 ARG TARGETARCH
@@ -31,7 +18,7 @@ COPY src/Workflow.Persistence/Workflow.Persistence.csproj ./src/Workflow.Persist
 RUN dotnet restore ./WorkflowServer.sln
 
 COPY src ./src
-COPY --from=frontend-build /src/Workflow.Web/Frontend/dist ./src/Workflow.Web/wwwroot
+COPY src/Workflow.Web/Frontend/dist ./src/Workflow.Web/wwwroot
 
 RUN \
     case "${TARGETARCH}" in \

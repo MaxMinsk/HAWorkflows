@@ -1,5 +1,5 @@
 name: Workflow Server
-version: "0.1.4"
+version: "0.1.5"
 slug: workflow_server
 description: Workflow builder and deterministic runtime for Home Assistant ingress.
 url: https://github.com/MaxMinsk/HAWorkflows/tree/main/addon
