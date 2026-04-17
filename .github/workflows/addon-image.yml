@@ -44,7 +44,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: src/Workflow.Web/Frontend
-        run: npm ci
+        run: npm ci --include=dev --no-audit --no-fund
 
       - name: Build frontend bundle
         working-directory: src/Workflow.Web/Frontend
