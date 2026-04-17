@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SkipWorkflowWebFrontendBuild>false</SkipWorkflowWebFrontendBuild>
+  </PropertyGroup>
+
+  <Target Name="WorkflowWebFrontendNpmInstall" BeforeTargets="Build"
+          Condition="Exists('Frontend/package.json') and !Exists('Frontend/node_modules') and '$(Configuration)' == 'Release' and '$(SkipWorkflowWebFrontendBuild)' != 'true'">
+    <Exec WorkingDirectory="Frontend" Command="npm install" />
+  </Target>
+
+  <Target Name="WorkflowWebFrontendBuild" BeforeTargets="Build"
+          Condition="Exists('Frontend/package.json') and '$(Configuration)' == 'Release' and '$(SkipWorkflowWebFrontendBuild)' != 'true'">
+    <Exec WorkingDirectory="Frontend" Command="npm run build" />
+  </Target>
+
+</Project>

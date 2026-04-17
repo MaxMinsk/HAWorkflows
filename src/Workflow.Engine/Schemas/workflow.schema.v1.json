@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worflows.local/schemas/workflow.schema.v1.json",
+  "title": "Workflow Definition Schema v1",
+  "description": "Base structure for deterministic workflow graph definition. Additional graph constraints (acyclic, reference integrity) are validated at runtime/UI.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "name",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "name",
+        "config"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "input",
+            "transform",
+            "log",
+            "output"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config": {
+          "type": "object"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "sourceNodeId",
+        "targetNodeId",
+        "sourcePort",
+        "targetPort"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceNodeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetNodeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourcePort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetPort": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

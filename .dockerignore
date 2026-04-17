@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+Notes~
+
+src/**/bin
+src/**/obj
+src/Workflow.Web/Frontend/node_modules
+src/Workflow.Web/Frontend/.vite

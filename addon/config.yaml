@@ -1,0 +1,21 @@
+name: Workflow Server
+version: "0.1.0"
+slug: workflow_server
+description: Workflow builder and deterministic runtime for Home Assistant ingress.
+url: https://github.com/MaxMinsk/HAWorkflows/tree/main/addon
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:source-branch
+image: ghcr.io/maxminsk/haworkflows
+options:
+  api_database_path: "/data/workflow.db"
+  external_signal_suppression_window_seconds: 300
+schema:
+  api_database_path: str
+  external_signal_suppression_window_seconds: int(1,3600)
