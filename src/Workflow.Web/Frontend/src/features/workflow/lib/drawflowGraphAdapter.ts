@@ -93,8 +93,14 @@ export function addNodeToCanvas(editor: Drawflow, options: AddNodeToCanvasOption
   );
 }
 
-export function selectNode(editor: Drawflow, nodeId: number): void {
-  editor.selectNodeId(`node-${nodeId}`);
+export function selectNode(editor: Drawflow, nodeId: number): boolean {
+  const selectNodeId = (editor as Drawflow & { selectNodeId?: (nodeDomId: string) => void }).selectNodeId;
+  if (typeof selectNodeId === "function") {
+    selectNodeId(`node-${nodeId}`);
+    return true;
+  }
+
+  return false;
 }
 
 export function removeNode(editor: Drawflow, nodeId: number): void {

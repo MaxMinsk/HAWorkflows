@@ -192,10 +192,14 @@ export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRe
     });
 
     refreshEmptyState();
-    selectNode(editor, nodeId);
+    const selectedByEditorApi = selectNode(editor, nodeId);
+    if (!selectedByEditorApi) {
+      setSelectedNodeId(nodeId);
+      syncInspector(nodeId);
+    }
     validateCurrentGraph();
     onToast(`${template.label} added`);
-  }, [onToast, refreshEmptyState, validateCurrentGraph]);
+  }, [onToast, refreshEmptyState, setSelectedNodeId, syncInspector, validateCurrentGraph]);
 
   const removeNode = useCallback((nodeId: number | null) => {
     const editor = editorRef.current;

@@ -15,7 +15,7 @@ import {
  */
 export function createWorkflowApiClient(storage: Storage = window.localStorage): WorkflowApiClient {
   const configuredApiBaseUrl = storage.getItem("workflow.api.baseUrl");
-  const apiBaseUrl = (configuredApiBaseUrl || "api").replace(/\/+$/, "");
+  const apiBaseUrl = resolveApiBaseUrl(configuredApiBaseUrl, window.location.pathname);
 
   async function request<TResponse>(path: string, options?: RequestInit): Promise<TResponse> {
     const response = await fetch(`${apiBaseUrl}${path}`, options);
@@ -54,6 +54,44 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
       return request<RunNodeState[]>(`/runs/${encodeURIComponent(runId)}/nodes`);
     }
   };
+}
+
+function resolveApiBaseUrl(configuredApiBaseUrl: string | null, pathname: string): string {
+  const ingressPrefix = detectIngressPrefix(pathname);
+  const configured = configuredApiBaseUrl?.trim();
+
+  if (configured) {
+    return normalizeApiBaseUrl(configured, ingressPrefix);
+  }
+
+  if (ingressPrefix) {
+    return `${ingressPrefix}/api`;
+  }
+
+  return "/api";
+}
+
+function detectIngressPrefix(pathname: string): string | null {
+  const ingressMatch = pathname.match(/^\/api\/hassio_ingress\/[^/]+/);
+  return ingressMatch?.[0] ?? null;
+}
+
+function normalizeApiBaseUrl(value: string, ingressPrefix: string | null): string {
+  const withoutTrailingSlash = value.replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(withoutTrailingSlash) || withoutTrailingSlash.startsWith("/")) {
+    return withoutTrailingSlash;
+  }
+
+  const relativePath = withoutTrailingSlash.replace(/^\.?\/*/, "");
+  if (!relativePath) {
+    return ingressPrefix ?? "/";
+  }
+
+  if (ingressPrefix) {
+    return `${ingressPrefix}/${relativePath}`;
+  }
+
+  return `/${relativePath}`;
 }
 
 async function parseApiError(response: Response): Promise<string> {
