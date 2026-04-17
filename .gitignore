@@ -4,3 +4,4 @@ src/**/bin/
 src/**/obj/
 src/Workflow.Api/data/*.db
 .DS_Store
+Notes~/
