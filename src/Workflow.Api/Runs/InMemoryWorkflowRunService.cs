@@ -14,15 +14,18 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
     private readonly ConcurrentDictionary<string, WorkflowRunState> _runs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _externalSignalRunIndex = new(StringComparer.Ordinal);
     private readonly IWorkflowRuntime _workflowRuntime;
+    private readonly WorkflowRunMetrics _metrics;
     private readonly ILogger<InMemoryWorkflowRunService> _logger;
     private readonly TimeSpan _externalSignalSuppressionWindow;
 
     public InMemoryWorkflowRunService(
         IWorkflowRuntime workflowRuntime,
+        WorkflowRunMetrics metrics,
         ILogger<InMemoryWorkflowRunService> logger,
         IOptions<WorkflowRunServiceOptions> options)
     {
         _workflowRuntime = workflowRuntime;
+        _metrics = metrics;
         _logger = logger;
         var configuredSeconds = options.Value.ExternalSignalSuppressionWindowSeconds;
         _externalSignalSuppressionWindow = TimeSpan.FromSeconds(Math.Max(1, configuredSeconds));
@@ -49,6 +52,12 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             throw new InvalidOperationException($"Run '{runId}' already exists.");
         }
 
+        _metrics.OnRunStarted(command.TriggerType);
+        _logger.LogInformation(
+            "Workflow run {RunId} accepted; workflow {WorkflowId}, trigger {TriggerType}.",
+            runId,
+            command.WorkflowId,
+            command.TriggerType);
         StartBackgroundRun(runId, state, command);
         return Task.FromResult(ToSnapshot(state));
     }
@@ -65,6 +74,7 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             {
                 if (TryGetRecentRun(indexedRunId, now, out var existingState))
                 {
+                    _metrics.OnRunDeduplicated(command.TriggerType);
                     _logger.LogInformation(
                         "External signal deduplicated for workflow {WorkflowId}; idempotency key {IdempotencyKey}, run {RunId}.",
                         command.WorkflowId,
@@ -100,6 +110,12 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                 continue;
             }
 
+            _metrics.OnRunStarted(command.TriggerType);
+            _logger.LogInformation(
+                "External signal accepted as new run {RunId}; workflow {WorkflowId}, source {TriggerSource}.",
+                runId,
+                command.WorkflowId,
+                command.TriggerSource);
             StartBackgroundRun(runId, state, command);
             return ToSnapshot(state);
         }
@@ -205,6 +221,13 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         WorkflowRunState state,
         StartWorkflowRunCommand command)
     {
+        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["RunId"] = runId,
+            ["WorkflowId"] = state.WorkflowId,
+            ["TriggerType"] = state.TriggerType.ToString()
+        });
+
         try
         {
             lock (state.SyncRoot)
@@ -212,6 +235,8 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                 state.Status = WorkflowRunStatus.Running;
                 state.StartedAtUtc = DateTimeOffset.UtcNow;
             }
+
+            _logger.LogInformation("Workflow run execution started.");
 
             var runtimeResult = await _workflowRuntime.ExecuteAsync(
                 command.Definition,
@@ -226,6 +251,11 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                         ApplyNodeUpdate(state, nodeUpdate);
                     }
 
+                    _metrics.OnNodeStatusChanged(nodeUpdate.Status);
+                    _logger.LogDebug(
+                        "Node status update: node {NodeId}, status {NodeStatus}.",
+                        nodeUpdate.NodeId,
+                        nodeUpdate.Status);
                     await Task.CompletedTask;
                 },
                 CancellationToken.None);
@@ -255,9 +285,9 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             }
 
             _logger.LogInformation(
-                "Workflow run {RunId} completed with status {Status}.",
-                runId,
+                "Workflow run completed with status {Status}.",
                 state.Status);
+            ReportRunCompletedMetrics(state);
         }
         catch (Exception exception)
         {
@@ -270,9 +300,22 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
 
             _logger.LogError(
                 exception,
-                "Workflow run {RunId} failed with unhandled exception.",
-                runId);
+                "Workflow run failed with unhandled exception.");
+            ReportRunCompletedMetrics(state);
         }
+    }
+
+    private void ReportRunCompletedMetrics(WorkflowRunState state)
+    {
+        var startedAtUtc = state.StartedAtUtc ?? state.CreatedAtUtc;
+        var completedAtUtc = state.CompletedAtUtc ?? DateTimeOffset.UtcNow;
+        var duration = completedAtUtc - startedAtUtc;
+        if (duration < TimeSpan.Zero)
+        {
+            duration = TimeSpan.Zero;
+        }
+
+        _metrics.OnRunCompleted(state.Status, duration, state.TriggerType);
     }
 
     private static void ApplyNodeUpdate(

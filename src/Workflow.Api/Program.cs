@@ -36,10 +36,25 @@ builder.Services.AddSingleton<IWorkflowDefinitionRepository>(serviceProvider =>
         workflowDatabasePath,
         serviceProvider.GetRequiredService<ILogger<SqliteWorkflowDefinitionRepository>>()));
 builder.Services.Configure<WorkflowRunServiceOptions>(builder.Configuration.GetSection("WorkflowRuns"));
+builder.Services.AddSingleton<WorkflowRunMetrics>();
 builder.Services.AddSingleton<IWorkflowRuntime, DeterministicWorkflowRuntime>();
 builder.Services.AddSingleton<IWorkflowRunService, InMemoryWorkflowRunService>();
 
 var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    var requestId = context.Request.Headers.TryGetValue("X-Request-ID", out var requestIdHeader) &&
+                    !string.IsNullOrWhiteSpace(requestIdHeader.ToString())
+        ? requestIdHeader.ToString().Trim()
+        : context.TraceIdentifier;
+
+    context.Response.Headers["X-Request-ID"] = requestId;
+    using (app.Logger.BeginScope(new Dictionary<string, object?> { ["RequestId"] = requestId }))
+    {
+        await next();
+    }
+});
 
 app.UseCors(WorkflowWebCorsPolicy);
 
@@ -61,6 +76,8 @@ app.MapGet("/health", () => Results.Ok(new
     status = "healthy",
     service = "Workflow.Api",
 }));
+
+app.MapGet("/metrics", (WorkflowRunMetrics metrics) => Results.Ok(metrics.GetSnapshot()));
 
 app.MapGet(
     "/workflows",
@@ -119,6 +136,12 @@ app.MapPost(
             request.Name.Trim(),
             request.Definition.GetRawText(),
             cancellationToken);
+
+        app.Logger.LogInformation(
+            "Workflow saved: workflowId {WorkflowId}, version {Version}, name {WorkflowName}.",
+            savedWorkflow.WorkflowId,
+            savedWorkflow.Version,
+            savedWorkflow.Name);
 
         return Results.Ok(ToWorkflowResponse(savedWorkflow));
     });
@@ -247,6 +270,12 @@ app.MapPost(
             cancellationToken);
 
         var response = ToWorkflowRunResponse(runSnapshot);
+        app.Logger.LogInformation(
+            "External signal run request processed: source {SignalSource}, workflow {WorkflowId}, run {RunId}, deduplicated {WasDeduplicated}.",
+            signalSource,
+            workflowId,
+            runSnapshot.RunId,
+            runSnapshot.WasDeduplicated);
         if (runSnapshot.WasDeduplicated)
         {
             return Results.Ok(response);
@@ -328,6 +357,11 @@ app.MapPost(
                 TriggerPayloadJson = hasInput ? request.Input!.Value.GetRawText() : null
             },
             cancellationToken);
+
+        app.Logger.LogInformation(
+            "Manual run request accepted: workflow {WorkflowId}, run {RunId}.",
+            workflowId,
+            runSnapshot.RunId);
 
         return Results.Accepted($"/runs/{runSnapshot.RunId}", ToWorkflowRunResponse(runSnapshot));
     });

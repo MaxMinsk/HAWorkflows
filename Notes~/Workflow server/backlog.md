@@ -58,7 +58,7 @@
 ## P1 (после MVP)
 
 ### HAWF-010 — Observability Baseline
-- Status: `todo`
+- Status: `done`
 - Priority: `P1`
 - Задача: structured logs + run/node correlation ids + базовые метрики.
 - Критерий: можно отследить run end-to-end по логам и метрикам.
@@ -94,9 +94,9 @@
 
 ## Now (первый спринт)
 
-1. HAWF-010
-2. HAWF-011
-3. HAWF-012
+1. HAWF-011
+2. HAWF-012
+3. HAWF-013
 
 ## Done
 
@@ -122,3 +122,4 @@
 - HAWF-027 — Workflow Graph Service Extraction: доменная логика конвертации/валидации графа вынесена из `useDrawflowEditor` в `features/workflow/lib/workflowGraphService.ts`; в хуке оставлена orchestration-логика для `validate/import`; `npm run typecheck`, `npm run build`, `dotnet build` — зеленые.
 - HAWF-008 — Trigger Layer v1 (manual + external_signal): добавлен endpoint `POST /signals/{source}` с обязательным idempotency key (`Idempotency-Key` header или body), внешний сигнал запускает run c `triggerType=external_signal`; повторный сигнал в suppression window возвращает существующий `runId` без дублирования запуска.
 - HAWF-009 — HA Add-on Packaging: добавлен add-on каркас (`addon/config.yaml`, `addon/Dockerfile`, `addon/run.sh`, `addon/README.md`, `repository.yaml`), ingress UI через `Workflow.Web:8099`, внутренний API `Workflow.Api:5188`, options->env mapping (`api_database_path`, suppression window), GitHub Actions для CI и публикации multi-arch образа в GHCR (`addon-image.yml`).
+- HAWF-010 — Observability Baseline: добавлены request correlation id (`X-Request-ID`) в middleware + scope логов, run/node structured logs в `InMemoryWorkflowRunService`, in-memory метрики `WorkflowRunMetrics` и endpoint `GET /metrics` (через ingress — `/api/metrics`).
