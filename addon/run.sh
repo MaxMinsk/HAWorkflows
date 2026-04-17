@@ -19,6 +19,7 @@ api_pid=$!
 
 bashio::log.info "Starting Workflow.Web on :${WEB_PORT} (ingress)"
 ASPNETCORE_URLS="http://0.0.0.0:${WEB_PORT}" \
+ASPNETCORE_CONTENTROOT="/opt/workflow/web" \
 Frontend__UseDevServer="false" \
 Api__BaseUrl="${API_BASE_URL}" \
 /opt/workflow/web/Workflow.Web &
