@@ -29,7 +29,6 @@ RUN \
       --configuration Release \
       --runtime "${dotnet_rid}" \
       --self-contained true \
-      --no-restore \
       --output /app/api \
       -p:Version="${BUILD_VERSION}" \
       -p:PublishSingleFile=true \
@@ -39,7 +38,6 @@ RUN \
       --configuration Release \
       --runtime "${dotnet_rid}" \
       --self-contained true \
-      --no-restore \
       --output /app/web \
       -p:Version="${BUILD_VERSION}" \
       -p:PublishSingleFile=true \
