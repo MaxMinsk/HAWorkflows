@@ -38,13 +38,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: src/Workflow.Web/Frontend/package-lock.json
 
+      - name: Upgrade npm
+        run: npm install -g npm@11.12.1
+
       - name: Install frontend dependencies
         working-directory: src/Workflow.Web/Frontend
-        run: npm ci --include=dev --no-audit --no-fund
+        run: npm install --include=dev --no-audit --no-fund
+
+      - name: Validate frontend toolchain
+        working-directory: src/Workflow.Web/Frontend
+        run: test -x node_modules/.bin/vite
 
       - name: Build frontend bundle
         working-directory: src/Workflow.Web/Frontend
