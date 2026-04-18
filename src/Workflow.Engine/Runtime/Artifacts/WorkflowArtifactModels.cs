@@ -21,7 +21,7 @@ public sealed record WorkflowArtifactDescriptor(
 /// <summary>
 /// Что: запрос на запись artifact в workspace.
 /// Зачем: дать executor-ам простой контракт сохранения JSON/MD/text результатов.
-/// Как: store получает content строкой, пишет файл и возвращает descriptor.
+/// Как: store получает content строкой, пишет файл и возвращает descriptor; для pipeline workspace можно задать stable relative directory/name.
 /// </summary>
 public sealed class WorkflowArtifactWriteRequest
 {
@@ -36,6 +36,10 @@ public sealed class WorkflowArtifactWriteRequest
     public required string MediaType { get; init; }
 
     public required string Content { get; init; }
+
+    public string? WorkspaceRelativeDirectory { get; init; }
+
+    public bool UseStableFileName { get; init; } = false;
 }
 
 /// <summary>

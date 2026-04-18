@@ -7,7 +7,7 @@ namespace Workflow.Engine.Runtime.Artifacts;
 /// <summary>
 /// Что: filesystem-реализация artifact store.
 /// Зачем: локальный workflow должен иметь воспроизводимый workspace без отдельной БД/облака.
-/// Как: пишет файлы в `workspace/runs/<runId>/artifacts/` и поддерживает `artifacts.json` metadata index.
+/// Как: по умолчанию пишет файлы в `workspace/runs/<runId>/artifacts/`; pipeline-ноды могут задать stable workspace directory.
 /// </summary>
 public sealed class FileSystemWorkflowArtifactStore : IWorkflowArtifactStore
 {
@@ -39,11 +39,14 @@ public sealed class FileSystemWorkflowArtifactStore : IWorkflowArtifactStore
         var content = request.Content ?? string.Empty;
         var bytes = Encoding.UTF8.GetBytes(content);
         var artifactId = Guid.NewGuid().ToString("N");
-        var artifactDirectory = GetRunArtifactsDirectory(runId);
-        var fileName = $"{artifactId}-{name}";
+        var artifactDirectory = ResolveArtifactDirectory(runId, request.WorkspaceRelativeDirectory);
+        var fileName = request.UseStableFileName ? name : $"{artifactId}-{name}";
         var absolutePath = Path.Combine(artifactDirectory, fileName);
         var relativePath = ToRelativeWorkspacePath(absolutePath);
         var createdAtUtc = DateTimeOffset.UtcNow;
+        var uri = string.IsNullOrWhiteSpace(request.WorkspaceRelativeDirectory)
+            ? $"workspace://runs/{runId}/artifacts/{artifactId}"
+            : $"workspace://{relativePath}";
 
         Directory.CreateDirectory(artifactDirectory);
         File.WriteAllBytes(absolutePath, bytes);
@@ -56,7 +59,7 @@ public sealed class FileSystemWorkflowArtifactStore : IWorkflowArtifactStore
             ArtifactType: string.IsNullOrWhiteSpace(request.ArtifactType) ? "file" : request.ArtifactType.Trim(),
             MediaType: string.IsNullOrWhiteSpace(request.MediaType) ? "application/octet-stream" : request.MediaType.Trim(),
             RelativePath: relativePath,
-            Uri: $"workspace://runs/{runId}/artifacts/{artifactId}",
+            Uri: uri,
             SizeBytes: bytes.LongLength,
             Sha256: Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             CreatedAtUtc: createdAtUtc);
@@ -147,6 +150,16 @@ public sealed class FileSystemWorkflowArtifactStore : IWorkflowArtifactStore
         return Path.Combine(_workspacePath, "runs", runId, "artifacts");
     }
 
+    private string ResolveArtifactDirectory(string runId, string? workspaceRelativeDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRelativeDirectory))
+        {
+            return GetRunArtifactsDirectory(runId);
+        }
+
+        return Path.Combine(_workspacePath, SanitizeRelativePath(workspaceRelativeDirectory));
+    }
+
     private string GetMetadataPath(string runId)
     {
         return Path.Combine(GetRunArtifactsDirectory(runId), "artifacts.json");
@@ -163,6 +176,20 @@ public sealed class FileSystemWorkflowArtifactStore : IWorkflowArtifactStore
     {
         var sanitized = SanitizeFileName(value, fallback);
         return sanitized.Replace('.', '_');
+    }
+
+    private static string SanitizeRelativePath(string value)
+    {
+        var segments = value
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(segment => SanitizeSegment(segment, "segment"))
+            .Where(segment => segment.Length > 0)
+            .ToArray();
+
+        return segments.Length == 0
+            ? "artifacts"
+            : Path.Combine(segments);
     }
 
     private static string SanitizeFileName(string value, string fallback)
