@@ -21,6 +21,8 @@ export function App() {
     isCanvasEmpty,
     workflowName,
     currentWorkflowId,
+    currentWorkflowVersion,
+    currentPublishedVersion,
     storedWorkflows,
     inspector,
     inspectorEnabled,
@@ -38,7 +40,11 @@ export function App() {
     onUpdateNode,
     onLoad,
     onSave,
+    onPublish,
+    onExportProfile,
+    onImportProfileFile,
     onRun,
+    onResumeRun,
     onStop,
     onRefreshStored,
     onOpenStoredWorkflow,
@@ -53,6 +59,7 @@ export function App() {
         statusDotColor={statusDotColor}
         onLoad={onLoad}
         onSave={onSave}
+        onPublish={onPublish}
         onRun={onRun}
         onStop={onStop}
         onOpenSettings={mcpSettings.open}
@@ -62,6 +69,8 @@ export function App() {
         <PalettePanel
           workflowName={workflowName}
           currentWorkflowId={currentWorkflowId}
+          currentWorkflowVersion={currentWorkflowVersion}
+          currentPublishedVersion={currentPublishedVersion}
           storedWorkflows={storedWorkflows}
           nodeTypes={nodeTypes}
           nodeTemplates={nodeTemplates}
@@ -69,6 +78,8 @@ export function App() {
           onAddNode={addNode}
           onRefreshStored={onRefreshStored}
           onOpenStoredWorkflow={onOpenStoredWorkflow}
+          onExportProfile={onExportProfile}
+          onImportProfileFile={onImportProfileFile}
         />
 
         <CanvasPanel editorContainerRef={editorContainerRef} isCanvasEmpty={isCanvasEmpty} />
@@ -85,6 +96,7 @@ export function App() {
           onUpdateNode={onUpdateNode}
           onDeleteNode={removeSelectedNode}
           onDisconnectConnection={disconnectConnection}
+          onResumeRun={onResumeRun}
         />
       </main>
 

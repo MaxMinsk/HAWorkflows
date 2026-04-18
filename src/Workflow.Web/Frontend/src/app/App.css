@@ -457,6 +457,53 @@ textarea {
   margin-top: 6px;
 }
 
+.artifact-list {
+  margin-top: 6px;
+}
+
+.artifact-item {
+  gap: 6px;
+}
+
+.artifact-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.artifact-preview {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.artifact-content {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  background: #f9fafb;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.artifact-error {
+  color: #7f1d1d;
+}
+
+.artifact-copy-status {
+  color: #166534;
+}
+
 .toast {
   position: fixed;
   right: 16px;

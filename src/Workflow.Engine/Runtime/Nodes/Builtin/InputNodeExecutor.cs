@@ -14,8 +14,7 @@ public sealed class InputNodeExecutor : IWorkflowNodeExecutor
         Label: "Input",
         Description: "Start signal",
         Inputs: 0,
-        Outputs: 1,
-        IsLocal: false);
+        Outputs: 1);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
     {

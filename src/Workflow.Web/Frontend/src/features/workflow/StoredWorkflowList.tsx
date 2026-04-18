@@ -27,7 +27,8 @@ export function StoredWorkflowList({ items, onOpen }: StoredWorkflowListProps) {
           <div>
             <div className="workflow-list-title">{workflow.name}</div>
             <div className="workflow-list-meta">
-              {workflow.workflowId} · v{workflow.version}
+              {workflow.workflowId} · draft v{workflow.version} · published{" "}
+              {workflow.publishedVersion ? `v${workflow.publishedVersion}` : "none"}
             </div>
           </div>
           <button className="disconnect-btn" type="button" onClick={() => onOpen(workflow.workflowId)}>

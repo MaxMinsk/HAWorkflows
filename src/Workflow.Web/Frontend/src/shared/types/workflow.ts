@@ -47,10 +47,47 @@ export interface StoredWorkflowSummary {
   workflowId: string;
   name: string;
   version: number;
+  status?: "draft" | "published" | string;
+  updatedAtUtc?: string;
+  publishedVersion?: number | null;
+  publishedAtUtc?: string | null;
 }
 
 export interface StoredWorkflowDetails extends StoredWorkflowSummary {
   definition: WorkflowDefinition;
+}
+
+export interface WorkflowProfilePackDocument {
+  profilePackSchemaVersion: "1.0" | string;
+  metadata: WorkflowProfilePackMetadata;
+  definition: WorkflowDefinition;
+  executionPolicyRefs: WorkflowProfileExecutionPolicyRefs;
+}
+
+export interface WorkflowProfilePackMetadata {
+  name: string;
+  exportedAtUtc: string;
+  sourceWorkflowId?: string | null;
+  sourceWorkflowVersion?: number | null;
+  sourceWorkflowStatus?: string | null;
+  sourcePublishedAtUtc?: string | null;
+}
+
+export interface WorkflowProfileExecutionPolicyRefs {
+  nodeTypes: string[];
+  routingStages: string[];
+  agentProfiles: string[];
+  mcpServerProfiles: string[];
+  nodePolicyRefs: WorkflowProfileNodePolicyRef[];
+}
+
+export interface WorkflowProfileNodePolicyRef {
+  nodeId: string;
+  nodeType: string;
+  nodeName: string;
+  routingStage?: string | null;
+  agentProfile?: string | null;
+  mcpServerProfile?: string | null;
 }
 
 export interface SaveWorkflowRequest {
@@ -61,7 +98,8 @@ export interface SaveWorkflowRequest {
 
 export interface StartRunRequest {
   workflowId?: string | null;
-  definition: WorkflowDefinition;
+  workflowVersion?: number | null;
+  definition?: WorkflowDefinition;
 }
 
 export interface RunLogEntry {
@@ -72,9 +110,35 @@ export interface RunLogEntry {
 
 export interface RunState {
   runId: string;
+  workflowId?: string | null;
+  workflowVersion?: number | null;
+  canResume?: boolean;
+  checkpointedAtUtc?: string | null;
   status: string;
+  createdAtUtc?: string | null;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
   error?: string | null;
   logs?: RunLogEntry[] | null;
+}
+
+export interface WorkflowArtifactDescriptor {
+  artifactId: string;
+  runId: string;
+  nodeId: string;
+  name: string;
+  artifactType: string;
+  mediaType: string;
+  relativePath: string;
+  uri: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAtUtc: string;
+}
+
+export interface WorkflowArtifactContent {
+  descriptor: WorkflowArtifactDescriptor;
+  content: string;
 }
 
 export interface RunNodeState {
@@ -97,6 +161,7 @@ export interface RunNodeState {
 export interface RunData {
   run: RunState | null;
   nodes: RunNodeState[];
+  artifacts: WorkflowArtifactDescriptor[];
 }
 
 export interface NodeTemplate {
@@ -106,7 +171,6 @@ export interface NodeTemplate {
   description: string;
   pack?: string;
   source?: string;
-  isLocal?: boolean;
   usesModel?: boolean;
   inputPorts?: NodeTemplatePort[];
   outputPorts?: NodeTemplatePort[];
@@ -149,6 +213,7 @@ export interface NodeTemplatePort {
   channel: WorkflowPortChannel;
   required?: boolean;
   acceptedKinds?: string[];
+  controlConditionKey?: string | null;
 }
 
 export interface WorkflowDataEnvelope<TPayload = unknown> {
@@ -240,13 +305,107 @@ export interface WorkflowApiClient {
   getNodeTemplates: () => Promise<NodeTemplatesMap>;
   listWorkflows: () => Promise<StoredWorkflowSummary[]>;
   getWorkflow: (workflowId: string) => Promise<StoredWorkflowDetails>;
+  getWorkflowVersion: (workflowId: string, version: number) => Promise<StoredWorkflowDetails>;
   saveWorkflow: (payload: SaveWorkflowRequest) => Promise<StoredWorkflowSummary>;
+  publishWorkflowVersion: (workflowId: string, version: number) => Promise<StoredWorkflowDetails>;
+  exportWorkflowProfilePack: (workflowId: string, version?: number | null) => Promise<WorkflowProfilePackDocument>;
+  importWorkflowProfilePack: (profilePack: WorkflowProfilePackDocument, name?: string) => Promise<StoredWorkflowDetails>;
   startRun: (payload: StartRunRequest) => Promise<{ runId: string }>;
+  resumeRun: (runId: string) => Promise<{ runId: string }>;
   getRun: (runId: string) => Promise<RunState>;
   getRunNodes: (runId: string) => Promise<RunNodeState[]>;
+  getRunArtifacts: (runId: string) => Promise<WorkflowArtifactDescriptor[]>;
+  getRunArtifact: (runId: string, artifactId: string) => Promise<WorkflowArtifactContent>;
+  getMetrics: () => Promise<WorkflowMetricsSnapshot>;
   getMcpSettings: () => Promise<McpSettingsResponse>;
   saveMcpSettings: (settings: McpSettingsDocument) => Promise<McpSettingsResponse>;
   testMcpProfile: (request: TestMcpProfileRequest) => Promise<TestMcpProfileResponse>;
+}
+
+export interface WorkflowMetricsSnapshot {
+  capturedAtUtc: string;
+  totalRunsStarted: number;
+  activeRuns: number;
+  totalRunsCompleted: number;
+  totalRunsSucceeded: number;
+  totalRunsFailed: number;
+  totalRunsDeduplicated: number;
+  totalNodeStatusUpdates: number;
+  averageCompletedRunDurationMs: number;
+  totalCompletedNodes: number;
+  totalSucceededNodes: number;
+  totalFailedNodes: number;
+  totalSkippedNodes: number;
+  totalAgentNodes: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  recentRuns: WorkflowMetricsRunSample[];
+  nodeTypeMetrics: WorkflowMetricsAggregate[];
+  stageMetrics: WorkflowMetricsAggregate[];
+  modelRouteMetrics: WorkflowMetricsAggregate[];
+  routeReasonMetrics: WorkflowMetricsAggregate[];
+}
+
+export interface WorkflowMetricsRunSample {
+  runId: string;
+  workflowId?: string | null;
+  workflowVersion?: number | null;
+  workflowName: string;
+  triggerType: string;
+  status: string;
+  createdAtUtc: string;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
+  durationMs: number;
+  nodeCount: number;
+  succeededNodeCount: number;
+  failedNodeCount: number;
+  skippedNodeCount: number;
+  agentNodeCount: number;
+  error?: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  nodes: WorkflowMetricsNodeSample[];
+}
+
+export interface WorkflowMetricsNodeSample {
+  nodeId: string;
+  nodeType: string;
+  nodeName: string;
+  status: string;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
+  durationMs: number;
+  routingStage?: string | null;
+  selectedTier?: string | null;
+  selectedModel?: string | null;
+  thinkingMode?: string | null;
+  routeReason?: string | null;
+  routingConfidence?: number | null;
+  routingRetryCount?: number | null;
+  routingBudgetRemaining?: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
+export interface WorkflowMetricsAggregate {
+  key: string;
+  completedNodes: number;
+  succeededNodes: number;
+  failedNodes: number;
+  skippedNodes: number;
+  totalDurationMs: number;
+  averageDurationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
 }
 
 export interface McpSettingsResponse {
@@ -310,6 +469,8 @@ export interface WorkflowBuilderViewModel {
   isCanvasEmpty: boolean;
   workflowName: string;
   currentWorkflowId: string | null;
+  currentWorkflowVersion: number | null;
+  currentPublishedVersion: number | null;
   storedWorkflows: StoredWorkflowSummary[];
   inspector: InspectorState;
   inspectorEnabled: boolean;
@@ -329,7 +490,11 @@ export interface WorkflowBuilderViewModel {
   onUpdateNode: () => void;
   onLoad: () => Promise<void>;
   onSave: () => Promise<void>;
+  onPublish: () => Promise<void>;
+  onExportProfile: () => Promise<void>;
+  onImportProfileFile: (file: File) => Promise<void>;
   onRun: () => Promise<void>;
+  onResumeRun: (runId: string) => Promise<void>;
   onStop: () => void;
   onRefreshStored: () => Promise<void>;
   onOpenStoredWorkflow: (workflowId: string) => Promise<void>;

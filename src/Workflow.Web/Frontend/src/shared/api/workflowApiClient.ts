@@ -10,7 +10,11 @@ import {
   type StoredWorkflowSummary,
   type TestMcpProfileRequest,
   type TestMcpProfileResponse,
-  type WorkflowApiClient
+  type WorkflowApiClient,
+  type WorkflowArtifactContent,
+  type WorkflowArtifactDescriptor,
+  type WorkflowMetricsSnapshot,
+  type WorkflowProfilePackDocument
 } from "../types/workflow";
 
 /**
@@ -44,7 +48,6 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
           description: nodeType.description,
           pack: nodeType.pack,
           source: nodeType.source,
-          isLocal: nodeType.isLocal,
           usesModel: nodeType.usesModel,
           inputPorts: nodeType.inputPorts,
           outputPorts: nodeType.outputPorts,
@@ -60,11 +63,37 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
     getWorkflow(workflowId: string): Promise<StoredWorkflowDetails> {
       return request<StoredWorkflowDetails>(`/workflows/${encodeURIComponent(workflowId)}`);
     },
+    getWorkflowVersion(workflowId: string, version: number): Promise<StoredWorkflowDetails> {
+      return request<StoredWorkflowDetails>(
+        `/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(String(version))}`
+      );
+    },
     saveWorkflow(payload: SaveWorkflowRequest): Promise<StoredWorkflowSummary> {
       return request<StoredWorkflowSummary>("/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
+      });
+    },
+    publishWorkflowVersion(workflowId: string, version: number): Promise<StoredWorkflowDetails> {
+      return request<StoredWorkflowDetails>(
+        `/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(String(version))}/publish`,
+        {
+          method: "POST"
+        }
+      );
+    },
+    exportWorkflowProfilePack(workflowId: string, version?: number | null): Promise<WorkflowProfilePackDocument> {
+      const query = version ? `?version=${encodeURIComponent(String(version))}` : "";
+      return request<WorkflowProfilePackDocument>(
+        `/workflows/${encodeURIComponent(workflowId)}/profile-pack${query}`
+      );
+    },
+    importWorkflowProfilePack(profilePack: WorkflowProfilePackDocument, name?: string): Promise<StoredWorkflowDetails> {
+      return request<StoredWorkflowDetails>("/workflow-profile-packs/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profilePack, name })
       });
     },
     startRun(payload: StartRunRequest): Promise<{ runId: string }> {
@@ -74,11 +103,27 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
         body: JSON.stringify(payload)
       });
     },
+    resumeRun(runId: string): Promise<{ runId: string }> {
+      return request<{ runId: string }>(`/runs/${encodeURIComponent(runId)}/resume`, {
+        method: "POST"
+      });
+    },
     getRun(runId: string): Promise<RunState> {
       return request<RunState>(`/runs/${encodeURIComponent(runId)}`);
     },
     getRunNodes(runId: string): Promise<RunNodeState[]> {
       return request<RunNodeState[]>(`/runs/${encodeURIComponent(runId)}/nodes`);
+    },
+    getRunArtifacts(runId: string): Promise<WorkflowArtifactDescriptor[]> {
+      return request<WorkflowArtifactDescriptor[]>(`/runs/${encodeURIComponent(runId)}/artifacts`);
+    },
+    getRunArtifact(runId: string, artifactId: string): Promise<WorkflowArtifactContent> {
+      return request<WorkflowArtifactContent>(
+        `/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}`
+      );
+    },
+    getMetrics(): Promise<WorkflowMetricsSnapshot> {
+      return request<WorkflowMetricsSnapshot>("/metrics");
     },
     getMcpSettings(): Promise<McpSettingsResponse> {
       return request<McpSettingsResponse>("/settings/mcp");
@@ -159,7 +204,6 @@ interface NodeTypeResponse {
   outputs: number;
   pack?: string;
   source?: string;
-  isLocal: boolean;
   usesModel?: boolean;
   inputPorts?: NodeTypePortResponse[];
   outputPorts?: NodeTypePortResponse[];
@@ -172,6 +216,7 @@ interface NodeTypePortResponse {
   channel: string;
   required?: boolean;
   acceptedKinds?: string[];
+  controlConditionKey?: string | null;
 }
 
 interface NodeTypeConfigFieldResponse {

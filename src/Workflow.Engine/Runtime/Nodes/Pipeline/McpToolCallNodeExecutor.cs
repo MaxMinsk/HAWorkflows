@@ -3,14 +3,14 @@ using System.Text.Json.Nodes;
 using Workflow.Engine.Runtime.Artifacts;
 using Workflow.Engine.Runtime.Mcp;
 
-namespace Workflow.Engine.Runtime.Nodes.Local;
+namespace Workflow.Engine.Runtime.Nodes.Pipeline;
 
 /// <summary>
-/// Что: local-only deterministic нода вызова MCP tool.
+/// Что: deterministic нода вызова MCP tool.
 /// Зачем: получать Jira/wiki/logs/test results через MCP без LLM и без токенов.
 /// Как: берет backend `serverProfile`, вызывает точный `toolName` с JSON arguments и возвращает нормализованный result payload.
 /// </summary>
-public sealed class McpToolCallLocalNodeExecutor : IWorkflowNodeExecutor
+public sealed class McpToolCallNodeExecutor : IWorkflowNodeExecutor
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -19,13 +19,12 @@ public sealed class McpToolCallLocalNodeExecutor : IWorkflowNodeExecutor
 
     public WorkflowNodeDescriptor Descriptor { get; } = new(
         Type: "mcp_tool_call",
-        Label: "MCP Tool Call (Local)",
+        Label: "MCP Tool Call",
         Description: "Call a deterministic MCP tool",
-        Inputs: 1,
+        Inputs: 2,
         Outputs: 1,
-        IsLocal: true,
-        Pack: WorkflowNodePacks.LocalDevelopment,
-        Source: WorkflowNodeSources.Local,
+        Pack: WorkflowNodePacks.Core,
+        Source: WorkflowNodeSources.BuiltIn,
         ConfigFields:
         [
             new WorkflowNodeConfigFieldDescriptor(
@@ -78,7 +77,8 @@ public sealed class McpToolCallLocalNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
+            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk)
         ],
         OutputPorts:
         [

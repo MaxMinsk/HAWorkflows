@@ -14,8 +14,7 @@ public sealed class LogNodeExecutor : IWorkflowNodeExecutor
         Label: "Log",
         Description: "Write execution log",
         Inputs: 1,
-        Outputs: 1,
-        IsLocal: false);
+        Outputs: 1);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
     {

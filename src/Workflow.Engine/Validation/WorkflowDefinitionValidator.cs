@@ -15,10 +15,10 @@ public sealed class WorkflowDefinitionValidator
     public WorkflowDefinitionValidator()
         : this(new[]
         {
-            new WorkflowNodeDescriptor("input", "Input", "Start signal", 0, 1, false),
-            new WorkflowNodeDescriptor("transform", "Transform", "Deterministic mapping", 1, 1, false),
-            new WorkflowNodeDescriptor("log", "Log", "Write execution log", 1, 1, false),
-            new WorkflowNodeDescriptor("output", "Output", "Final result", 1, 0, false)
+            new WorkflowNodeDescriptor("input", "Input", "Start signal", 0, 1),
+            new WorkflowNodeDescriptor("transform", "Transform", "Deterministic mapping", 1, 1),
+            new WorkflowNodeDescriptor("log", "Log", "Write execution log", 1, 1),
+            new WorkflowNodeDescriptor("output", "Output", "Final result", 1, 0)
         })
     {
     }
@@ -29,8 +29,7 @@ public sealed class WorkflowDefinitionValidator
             Label: nodeType,
             Description: string.Empty,
             Inputs: 1,
-            Outputs: 1,
-            IsLocal: false)))
+            Outputs: 1)))
     {
     }
 

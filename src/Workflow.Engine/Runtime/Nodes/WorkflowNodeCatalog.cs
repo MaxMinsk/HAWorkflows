@@ -2,8 +2,8 @@ namespace Workflow.Engine.Runtime.Nodes;
 
 /// <summary>
 /// Что: runtime-каталог node executors.
-/// Зачем: дать auto-discovery + pack-based отбор нод (shared/local).
-/// Как: принимает все executors из DI, фильтрует по Profile/EnabledPacks/DisabledPacks и строит словарь type->executor.
+/// Зачем: дать auto-discovery + capability-based pack отбор нод.
+/// Как: принимает все executors из DI, применяет EnabledPacks/DisabledPacks и строит словарь type->executor.
 /// </summary>
 public sealed class WorkflowNodeCatalog : IWorkflowNodeCatalog
 {
@@ -15,17 +15,9 @@ public sealed class WorkflowNodeCatalog : IWorkflowNodeCatalog
         ArgumentNullException.ThrowIfNull(executors);
         options ??= new WorkflowNodeCatalogOptions();
 
-        var isLocalProfile = string.Equals(options.Profile, "local", StringComparison.OrdinalIgnoreCase);
-        var includeLocal = options.IncludeLocalNodes || isLocalProfile;
         var enabledPacks = NormalizePacks(options.EnabledPacks);
         var disabledPacks = NormalizePacks(options.DisabledPacks);
         var hasExplicitEnabledPacks = enabledPacks.Count > 0;
-        if (hasExplicitEnabledPacks &&
-            includeLocal &&
-            !disabledPacks.Contains(WorkflowNodePacks.LocalDevelopment))
-        {
-            enabledPacks.Add(WorkflowNodePacks.LocalDevelopment);
-        }
 
         var dictionary = new Dictionary<string, IWorkflowNodeExecutor>(StringComparer.Ordinal);
         foreach (var executor in executors)
@@ -44,10 +36,6 @@ public sealed class WorkflowNodeCatalog : IWorkflowNodeCatalog
                     continue;
                 }
             }
-            else if (descriptor.IsLocal && !includeLocal)
-            {
-                continue;
-            }
 
             if (dictionary.ContainsKey(descriptor.Type))
             {
@@ -61,8 +49,7 @@ public sealed class WorkflowNodeCatalog : IWorkflowNodeCatalog
         _executorsByType = dictionary;
         _descriptors = dictionary.Values
             .Select(executor => executor.Descriptor)
-            .OrderBy(descriptor => descriptor.IsLocal)
-            .ThenBy(descriptor => descriptor.Pack, StringComparer.Ordinal)
+            .OrderBy(descriptor => descriptor.Pack, StringComparer.Ordinal)
             .ThenBy(descriptor => descriptor.Type, StringComparer.Ordinal)
             .ToArray();
     }

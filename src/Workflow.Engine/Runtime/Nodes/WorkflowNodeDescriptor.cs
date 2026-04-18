@@ -11,7 +11,6 @@ public sealed record WorkflowNodeDescriptor(
     string Description,
     int Inputs,
     int Outputs,
-    bool IsLocal,
     bool ProducesRunOutput = false,
     IReadOnlyList<WorkflowNodeConfigFieldDescriptor>? ConfigFields = null,
     IReadOnlyList<WorkflowNodePortDescriptor>? InputPorts = null,
@@ -57,24 +56,22 @@ public sealed record WorkflowNodeDescriptor(
 
 /// <summary>
 /// Что: канонические имена node pack-ов.
-/// Зачем: разделять публичные shared-ноды и local-only ноды без fork-а runtime.
-/// Как: descriptor каждой ноды указывает Pack, а catalog фильтрует pack-и по настройкам.
+/// Зачем: группировать ноды по capability/package без product split-а remote/local.
+/// Как: descriptor каждой ноды указывает Pack, а catalog может отключать pack-и через policy.
 /// </summary>
 public static class WorkflowNodePacks
 {
     public const string Core = "core";
-    public const string LocalDevelopment = "local_development";
 }
 
 /// <summary>
 /// Что: источник node descriptor-а.
-/// Зачем: UI и diagnostics должны понимать, пришла нода из публичного набора или локального pack-а.
+/// Зачем: UI и diagnostics должны понимать происхождение ноды без remote/local режима.
 /// Как: значение отдается через `/node-types` вместе с Pack.
 /// </summary>
 public static class WorkflowNodeSources
 {
     public const string BuiltIn = "built_in";
-    public const string Local = "local";
 }
 
 /// <summary>
@@ -87,7 +84,8 @@ public sealed record WorkflowNodePortDescriptor(
     string Label,
     string Channel,
     bool Required = false,
-    IReadOnlyList<string>? AcceptedKinds = null);
+    IReadOnlyList<string>? AcceptedKinds = null,
+    string? ControlConditionKey = null);
 
 /// <summary>
 /// Что: канонические channel-типы портов.

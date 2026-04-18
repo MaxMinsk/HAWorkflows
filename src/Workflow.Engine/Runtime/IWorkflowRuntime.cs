@@ -13,5 +13,6 @@ public interface IWorkflowRuntime
         WorkflowDefinition definition,
         WorkflowRunRequest request,
         Func<WorkflowNodeRunResult, CancellationToken, Task>? onNodeStatusChanged,
+        Func<WorkflowRuntimeCheckpoint, CancellationToken, Task>? onCheckpointCreated,
         CancellationToken cancellationToken);
 }

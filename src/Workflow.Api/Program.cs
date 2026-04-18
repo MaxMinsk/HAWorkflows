@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Workflow.Api.ProfilePacks;
 using Workflow.Api.Settings;
 using Workflow.Api.Runs;
 using Workflow.Engine.Definitions;
@@ -37,6 +38,16 @@ if (!Path.IsPathRooted(workflowWorkspacePath))
         Path.Combine(builder.Environment.ContentRootPath, workflowWorkspacePath));
 }
 
+var configuredCheckpointPath = builder.Configuration["WorkflowRuns:CheckpointPath"];
+var workflowCheckpointPath = string.IsNullOrWhiteSpace(configuredCheckpointPath)
+    ? Path.Combine(builder.Environment.ContentRootPath, "data", "run-checkpoints")
+    : configuredCheckpointPath!;
+if (!Path.IsPathRooted(workflowCheckpointPath))
+{
+    workflowCheckpointPath = Path.GetFullPath(
+        Path.Combine(builder.Environment.ContentRootPath, workflowCheckpointPath));
+}
+
 var configuredMcpConfigPath = builder.Configuration["WorkflowMcp:ConfigPath"];
 var mcpConfigPath = string.IsNullOrWhiteSpace(configuredMcpConfigPath)
     ? Path.Combine(builder.Environment.ContentRootPath, "data", "mcp.json")
@@ -65,6 +76,10 @@ builder.Services.AddSingleton<IWorkflowDefinitionRepository>(serviceProvider =>
         workflowDatabasePath,
         serviceProvider.GetRequiredService<ILogger<SqliteWorkflowDefinitionRepository>>()));
 builder.Services.AddSingleton<IWorkflowArtifactStore>(_ => new FileSystemWorkflowArtifactStore(workflowWorkspacePath));
+builder.Services.AddSingleton<IWorkflowRunCheckpointStore>(serviceProvider =>
+    new FileSystemWorkflowRunCheckpointStore(
+        workflowCheckpointPath,
+        serviceProvider.GetRequiredService<ILogger<FileSystemWorkflowRunCheckpointStore>>()));
 builder.Services.Configure<WorkflowRunServiceOptions>(builder.Configuration.GetSection("WorkflowRuns"));
 var agentExecutorOptions = builder.Configuration.GetSection("WorkflowAgents").Get<AgentExecutorOptions>()
                            ?? new AgentExecutorOptions();
@@ -131,6 +146,7 @@ app.MapGet("/", () => Results.Ok(new
     status = "ok",
     storage = workflowDatabasePath,
     workspace = workflowWorkspacePath,
+    checkpoints = workflowCheckpointPath,
     mcpConfig = mcpConfigPath,
 }));
 
@@ -217,7 +233,6 @@ app.MapGet(
                 Outputs: descriptor.Outputs,
                 Pack: descriptor.Pack,
                 Source: descriptor.Source,
-                IsLocal: descriptor.IsLocal,
                 UsesModel: descriptor.UsesModel,
                 InputPorts: descriptor.GetInputPorts()
                     .Select(port => new NodeTypePortResponse(
@@ -225,7 +240,8 @@ app.MapGet(
                         Label: port.Label,
                         Channel: port.Channel,
                         Required: port.Required,
-                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>()))
+                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>(),
+                        ControlConditionKey: port.ControlConditionKey))
                     .ToArray(),
                 OutputPorts: descriptor.GetOutputPorts()
                     .Select(port => new NodeTypePortResponse(
@@ -233,7 +249,8 @@ app.MapGet(
                         Label: port.Label,
                         Channel: port.Channel,
                         Required: port.Required,
-                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>()))
+                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>(),
+                        ControlConditionKey: port.ControlConditionKey))
                     .ToArray(),
                 ConfigFields: (descriptor.ConfigFields ?? Array.Empty<WorkflowNodeConfigFieldDescriptor>())
                     .Select(field => new NodeTypeConfigFieldResponse(
@@ -267,7 +284,10 @@ app.MapGet(
             WorkflowId: summary.WorkflowId,
             Name: summary.Name,
             Version: summary.Version,
-            UpdatedAtUtc: summary.UpdatedAtUtc)));
+            Status: summary.Status,
+            UpdatedAtUtc: summary.UpdatedAtUtc,
+            PublishedVersion: summary.PublishedVersion,
+            PublishedAtUtc: summary.PublishedAtUtc)));
     });
 
 app.MapGet(
@@ -289,6 +309,173 @@ app.MapGet(
         }
 
         return Results.Ok(ToWorkflowResponse(workflow));
+    });
+
+app.MapGet(
+    "/workflows/{workflowId}/versions/{version:int}",
+    async Task<IResult> (
+        string workflowId,
+        int version,
+        IWorkflowDefinitionRepository repository,
+        CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(workflowId))
+        {
+            return Results.BadRequest(new { error = "workflowId is required." });
+        }
+
+        if (version <= 0)
+        {
+            return Results.BadRequest(new { error = "version must be positive." });
+        }
+
+        var workflow = await repository.GetByIdAndVersionAsync(workflowId.Trim(), version, cancellationToken);
+        if (workflow is null)
+        {
+            return Results.NotFound(new { error = $"Workflow '{workflowId}' version {version} was not found." });
+        }
+
+        return Results.Ok(ToWorkflowResponse(workflow));
+    });
+
+app.MapGet(
+    "/workflows/{workflowId}/profile-pack",
+    async Task<IResult> (
+        string workflowId,
+        HttpRequest httpRequest,
+        IWorkflowDefinitionRepository repository,
+        CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(workflowId))
+        {
+            return Results.BadRequest(new { error = "workflowId is required." });
+        }
+
+        var workflowVersion = ParseOptionalVersionQuery(httpRequest, out var versionError);
+        if (!string.IsNullOrWhiteSpace(versionError))
+        {
+            return Results.BadRequest(new { error = versionError });
+        }
+
+        StoredWorkflowDefinition? storedWorkflow;
+        if (workflowVersion.HasValue)
+        {
+            storedWorkflow = await repository.GetByIdAndVersionAsync(
+                workflowId.Trim(),
+                workflowVersion.Value,
+                cancellationToken);
+        }
+        else
+        {
+            storedWorkflow = await repository.GetLatestByIdAsync(workflowId.Trim(), cancellationToken);
+        }
+
+        if (storedWorkflow is null)
+        {
+            return workflowVersion.HasValue
+                ? Results.NotFound(new { error = $"Workflow '{workflowId}' version {workflowVersion.Value} was not found." })
+                : Results.NotFound(new { error = $"Workflow '{workflowId}' was not found." });
+        }
+
+        var definition = LoadWorkflowDefinition(storedWorkflow, out var deserializeError);
+        if (definition is null)
+        {
+            return Results.BadRequest(new { error = deserializeError });
+        }
+
+        var pack = WorkflowProfilePackFactory.Create(storedWorkflow, definition);
+        return Results.Ok(pack);
+    });
+
+app.MapPost(
+    "/workflow-profile-packs/import",
+    async Task<IResult> (
+        ImportWorkflowProfilePackRequest request,
+        IWorkflowDefinitionRepository repository,
+        IWorkflowNodeCatalog nodeCatalog,
+        WorkflowDefinitionValidator validator,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.ProfilePack.ValueKind != JsonValueKind.Object)
+        {
+            return Results.BadRequest(new { error = "profilePack must be a JSON object." });
+        }
+
+        WorkflowProfilePackDocument? profilePack;
+        try
+        {
+            profilePack = request.ProfilePack.Deserialize<WorkflowProfilePackDocument>(
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (Exception exception)
+        {
+            return Results.BadRequest(new { error = $"profilePack cannot be deserialized: {exception.Message}" });
+        }
+
+        if (profilePack is null)
+        {
+            return Results.BadRequest(new { error = "profilePack cannot be deserialized." });
+        }
+
+        if (!string.Equals(
+                profilePack.ProfilePackSchemaVersion,
+                WorkflowProfilePackFactory.CurrentSchemaVersion,
+                StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new
+            {
+                error = $"Unsupported profilePackSchemaVersion '{profilePack.ProfilePackSchemaVersion}'."
+            });
+        }
+
+        var importedName = ResolveImportedWorkflowName(profilePack, request.Name);
+        var importedDefinition = new WorkflowDefinition
+        {
+            SchemaVersion = profilePack.Definition.SchemaVersion,
+            Name = importedName,
+            Nodes = profilePack.Definition.Nodes,
+            Edges = profilePack.Definition.Edges
+        };
+
+        var validationResult = validator.Validate(importedDefinition);
+        if (!validationResult.IsValid)
+        {
+            var supportedNodeTypes = nodeCatalog.GetSupportedNodeTypes().ToHashSet(StringComparer.Ordinal);
+            var missingNodeTypes = importedDefinition.Nodes
+                .Select(node => node.Type)
+                .Where(nodeType => !supportedNodeTypes.Contains(nodeType))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(nodeType => nodeType, StringComparer.Ordinal)
+                .ToArray();
+            if (missingNodeTypes.Length > 0)
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"Profile pack contains unsupported node types: {string.Join(", ", missingNodeTypes)}.",
+                    missingNodeTypes,
+                    hint = "Check WorkflowNodes:EnabledPacks/DisabledPacks. The local-first runtime no longer requires a separate local nodes mode."
+                });
+            }
+
+            return Results.BadRequest(new { error = string.Join(" ", validationResult.Errors) });
+        }
+
+        var definitionJson = JsonSerializer.Serialize(
+            importedDefinition,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var savedWorkflow = await repository.SaveDraftAsync(
+            workflowId: null,
+            name: importedName,
+            definitionJson: definitionJson,
+            cancellationToken: cancellationToken);
+
+        app.Logger.LogInformation(
+            "Workflow profile pack imported: workflowId {WorkflowId}, version {Version}, name {WorkflowName}.",
+            savedWorkflow.WorkflowId,
+            savedWorkflow.Version,
+            savedWorkflow.Name);
+
+        return Results.Ok(ToWorkflowResponse(savedWorkflow));
     });
 
 app.MapPost(
@@ -321,19 +508,51 @@ app.MapPost(
             return Results.BadRequest(new { error = string.Join(" ", validationResult.Errors) });
         }
 
-        var savedWorkflow = await repository.SaveAsync(
+        var savedWorkflow = await repository.SaveDraftAsync(
             request.Id,
             request.Name.Trim(),
             request.Definition.GetRawText(),
             cancellationToken);
 
         app.Logger.LogInformation(
-            "Workflow saved: workflowId {WorkflowId}, version {Version}, name {WorkflowName}.",
+            "Workflow draft saved: workflowId {WorkflowId}, version {Version}, name {WorkflowName}.",
             savedWorkflow.WorkflowId,
             savedWorkflow.Version,
             savedWorkflow.Name);
 
         return Results.Ok(ToWorkflowResponse(savedWorkflow));
+    });
+
+app.MapPost(
+    "/workflows/{workflowId}/versions/{version:int}/publish",
+    async Task<IResult> (
+        string workflowId,
+        int version,
+        IWorkflowDefinitionRepository repository,
+        CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(workflowId))
+        {
+            return Results.BadRequest(new { error = "workflowId is required." });
+        }
+
+        if (version <= 0)
+        {
+            return Results.BadRequest(new { error = "version must be positive." });
+        }
+
+        var publishedWorkflow = await repository.PublishAsync(workflowId.Trim(), version, cancellationToken);
+        if (publishedWorkflow is null)
+        {
+            return Results.NotFound(new { error = $"Workflow '{workflowId}' version {version} was not found." });
+        }
+
+        app.Logger.LogInformation(
+            "Workflow published: workflowId {WorkflowId}, version {Version}.",
+            publishedWorkflow.WorkflowId,
+            publishedWorkflow.Version);
+
+        return Results.Ok(ToWorkflowResponse(publishedWorkflow));
     });
 
 app.MapPost(
@@ -374,6 +593,7 @@ app.MapPost(
             definition,
             runRequest,
             onNodeStatusChanged: null,
+            onCheckpointCreated: null,
             cancellationToken);
         return Results.Ok(runResult);
     });
@@ -415,28 +635,16 @@ app.MapPost(
             });
         }
 
-        var storedWorkflow = await repository.GetLatestByIdAsync(workflowId, cancellationToken);
+        var storedWorkflow = await repository.GetPublishedByIdAsync(workflowId, cancellationToken);
         if (storedWorkflow is null)
         {
-            return Results.NotFound(new { error = $"Workflow '{workflowId}' was not found." });
+            return Results.BadRequest(new { error = $"Workflow '{workflowId}' has no published version." });
         }
 
-        using var document = JsonDocument.Parse(storedWorkflow.DefinitionJson);
-        var definition = DeserializeWorkflowDefinition(document.RootElement, out var deserializeError);
+        var definition = LoadWorkflowDefinition(storedWorkflow, out var deserializeError);
         if (definition is null)
         {
             return Results.BadRequest(new { error = deserializeError });
-        }
-
-        if (string.IsNullOrWhiteSpace(definition.Name))
-        {
-            definition = new WorkflowDefinition
-            {
-                SchemaVersion = definition.SchemaVersion,
-                Name = storedWorkflow.Name,
-                Nodes = definition.Nodes,
-                Edges = definition.Edges
-            };
         }
 
         var signalReceivedAtUtc = DateTimeOffset.UtcNow;
@@ -450,6 +658,7 @@ app.MapPost(
             new StartWorkflowRunCommand
             {
                 WorkflowId = workflowId,
+                WorkflowVersion = storedWorkflow.Version,
                 Definition = definition,
                 InputJson = signalEnvelopeJson,
                 TriggerType = WorkflowRunTriggerType.ExternalSignal,
@@ -461,9 +670,10 @@ app.MapPost(
 
         var response = ToWorkflowRunResponse(runSnapshot);
         app.Logger.LogInformation(
-            "External signal run request processed: source {SignalSource}, workflow {WorkflowId}, run {RunId}, deduplicated {WasDeduplicated}.",
+            "External signal run request processed: source {SignalSource}, workflow {WorkflowId}, version {WorkflowVersion}, run {RunId}, deduplicated {WasDeduplicated}.",
             signalSource,
             workflowId,
+            storedWorkflow.Version,
             runSnapshot.RunId,
             runSnapshot.WasDeduplicated);
         if (runSnapshot.WasDeduplicated)
@@ -489,6 +699,7 @@ app.MapPost(
         }
 
         WorkflowDefinition? definition = null;
+        int? workflowVersion = request.WorkflowVersion;
         var workflowId = string.IsNullOrWhiteSpace(request.WorkflowId)
             ? null
             : request.WorkflowId.Trim();
@@ -504,29 +715,31 @@ app.MapPost(
 
         if (definition is null && !string.IsNullOrWhiteSpace(workflowId))
         {
-            var storedWorkflow = await repository.GetLatestByIdAsync(workflowId, cancellationToken);
-            if (storedWorkflow is null)
+            StoredWorkflowDefinition? storedWorkflow;
+            if (workflowVersion.HasValue)
             {
-                return Results.NotFound(new { error = $"Workflow '{workflowId}' was not found." });
+                storedWorkflow = await repository.GetByIdAndVersionAsync(workflowId, workflowVersion.Value, cancellationToken);
+            }
+            else
+            {
+                storedWorkflow = await repository.GetPublishedByIdAsync(workflowId, cancellationToken)
+                                 ?? await repository.GetLatestByIdAsync(workflowId, cancellationToken);
             }
 
-            using var document = JsonDocument.Parse(storedWorkflow.DefinitionJson);
-            definition = DeserializeWorkflowDefinition(document.RootElement, out var deserializeError);
+            if (storedWorkflow is null)
+            {
+                return workflowVersion.HasValue
+                    ? Results.NotFound(new { error = $"Workflow '{workflowId}' version {workflowVersion.Value} was not found." })
+                    : Results.NotFound(new { error = $"Workflow '{workflowId}' was not found." });
+            }
+
+            definition = LoadWorkflowDefinition(storedWorkflow, out var deserializeError);
             if (definition is null)
             {
                 return Results.BadRequest(new { error = deserializeError });
             }
 
-            if (string.IsNullOrWhiteSpace(definition.Name))
-            {
-                definition = new WorkflowDefinition
-                {
-                    SchemaVersion = definition.SchemaVersion,
-                    Name = storedWorkflow.Name,
-                    Nodes = definition.Nodes,
-                    Edges = definition.Edges
-                };
-            }
+            workflowVersion = storedWorkflow.Version;
         }
 
         if (definition is null)
@@ -540,6 +753,7 @@ app.MapPost(
             new StartWorkflowRunCommand
             {
                 WorkflowId = workflowId,
+                WorkflowVersion = workflowVersion,
                 Definition = definition,
                 InputJson = hasInput ? request.Input!.Value.GetRawText() : null,
                 TriggerType = WorkflowRunTriggerType.Manual,
@@ -549,8 +763,9 @@ app.MapPost(
             cancellationToken);
 
         app.Logger.LogInformation(
-            "Manual run request accepted: workflow {WorkflowId}, run {RunId}.",
+            "Manual run request accepted: workflow {WorkflowId}, version {WorkflowVersion}, run {RunId}.",
             workflowId,
+            workflowVersion,
             runSnapshot.RunId);
 
         return Results.Accepted($"/runs/{runSnapshot.RunId}", ToWorkflowRunResponse(runSnapshot));
@@ -572,6 +787,27 @@ app.MapGet(
         }
 
         return Results.Ok(ToWorkflowRunResponse(runSnapshot));
+    });
+
+app.MapPost(
+    "/runs/{runId}/resume",
+    async Task<IResult> (
+        string runId,
+        IWorkflowRunService runService,
+        CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return Results.BadRequest(new { error = "runId is required." });
+        }
+
+        var runSnapshot = await runService.ResumeRunAsync(runId.Trim(), cancellationToken);
+        if (runSnapshot is null)
+        {
+            return Results.NotFound(new { error = $"Run '{runId}' was not found." });
+        }
+
+        return Results.Accepted($"/runs/{runSnapshot.RunId}", ToWorkflowRunResponse(runSnapshot));
     });
 
 app.MapGet(
@@ -636,8 +872,35 @@ static WorkflowResponse ToWorkflowResponse(StoredWorkflowDefinition storedWorkfl
         WorkflowId: storedWorkflow.WorkflowId,
         Name: storedWorkflow.Name,
         Version: storedWorkflow.Version,
+        Status: storedWorkflow.Status,
         Definition: document.RootElement.Clone(),
-        UpdatedAtUtc: storedWorkflow.UpdatedAtUtc);
+        UpdatedAtUtc: storedWorkflow.UpdatedAtUtc,
+        PublishedAtUtc: storedWorkflow.PublishedAtUtc);
+}
+
+static WorkflowDefinition? LoadWorkflowDefinition(
+    StoredWorkflowDefinition storedWorkflow,
+    out string? error)
+{
+    using var document = JsonDocument.Parse(storedWorkflow.DefinitionJson);
+    var definition = DeserializeWorkflowDefinition(document.RootElement, out error);
+    if (definition is null)
+    {
+        return null;
+    }
+
+    if (!string.IsNullOrWhiteSpace(definition.Name))
+    {
+        return definition;
+    }
+
+    return new WorkflowDefinition
+    {
+        SchemaVersion = definition.SchemaVersion,
+        Name = storedWorkflow.Name,
+        Nodes = definition.Nodes,
+        Edges = definition.Edges
+    };
 }
 
 static WorkflowDefinition? DeserializeWorkflowDefinition(
@@ -663,6 +926,46 @@ static WorkflowDefinition? DeserializeWorkflowDefinition(
     }
 }
 
+static int? ParseOptionalVersionQuery(HttpRequest httpRequest, out string? error)
+{
+    error = null;
+    if (!httpRequest.Query.TryGetValue("version", out var rawVersion) ||
+        string.IsNullOrWhiteSpace(rawVersion.ToString()))
+    {
+        return null;
+    }
+
+    if (!int.TryParse(rawVersion.ToString(), out var parsedVersion) || parsedVersion <= 0)
+    {
+        error = "version query parameter must be a positive integer.";
+        return null;
+    }
+
+    return parsedVersion;
+}
+
+static string ResolveImportedWorkflowName(
+    WorkflowProfilePackDocument profilePack,
+    string? requestedName)
+{
+    var name = requestedName?.Trim();
+    if (!string.IsNullOrWhiteSpace(name))
+    {
+        return name;
+    }
+
+    name = profilePack.Metadata.Name?.Trim();
+    if (!string.IsNullOrWhiteSpace(name))
+    {
+        return name;
+    }
+
+    name = profilePack.Definition.Name?.Trim();
+    return string.IsNullOrWhiteSpace(name)
+        ? "Imported Workflow Profile"
+        : name;
+}
+
 static WorkflowRunResponse ToWorkflowRunResponse(WorkflowRunSnapshot snapshot)
 {
     var totalNodes = snapshot.NodeResults.Count;
@@ -675,12 +978,15 @@ static WorkflowRunResponse ToWorkflowRunResponse(WorkflowRunSnapshot snapshot)
     return new WorkflowRunResponse(
         RunId: snapshot.RunId,
         WorkflowId: snapshot.WorkflowId,
+        WorkflowVersion: snapshot.WorkflowVersion,
         WorkflowName: snapshot.WorkflowName,
         TriggerType: snapshot.TriggerType,
         TriggerSource: snapshot.TriggerSource,
         TriggerPayloadJson: snapshot.TriggerPayloadJson,
         IdempotencyKey: snapshot.IdempotencyKey,
         WasDeduplicated: snapshot.WasDeduplicated,
+        CanResume: snapshot.CanResume,
+        CheckpointedAtUtc: snapshot.CheckpointedAtUtc,
         Status: snapshot.Status,
         CreatedAtUtc: snapshot.CreatedAtUtc,
         StartedAtUtc: snapshot.StartedAtUtc,
@@ -758,14 +1064,19 @@ public sealed record WorkflowSummaryResponse(
     string WorkflowId,
     string Name,
     int Version,
-    DateTimeOffset UpdatedAtUtc);
+    string Status,
+    DateTimeOffset UpdatedAtUtc,
+    int? PublishedVersion,
+    DateTimeOffset? PublishedAtUtc);
 
 public sealed record WorkflowResponse(
     string WorkflowId,
     string Name,
     int Version,
+    string Status,
     JsonElement Definition,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? PublishedAtUtc);
 
 public sealed record NodeTypeResponse(
     string Type,
@@ -775,7 +1086,6 @@ public sealed record NodeTypeResponse(
     int Outputs,
     string Pack,
     string Source,
-    bool IsLocal,
     bool UsesModel,
     IReadOnlyList<NodeTypePortResponse> InputPorts,
     IReadOnlyList<NodeTypePortResponse> OutputPorts,
@@ -786,7 +1096,8 @@ public sealed record NodeTypePortResponse(
     string Label,
     string Channel,
     bool Required,
-    IReadOnlyList<string> AcceptedKinds);
+    IReadOnlyList<string> AcceptedKinds,
+    string? ControlConditionKey);
 
 public sealed record NodeTypeConfigFieldResponse(
     string Key,
@@ -819,6 +1130,7 @@ public sealed class ExecuteWorkflowPreviewRequest
 public sealed class CreateWorkflowRunRequest
 {
     public string? WorkflowId { get; init; }
+    public int? WorkflowVersion { get; init; }
     public JsonElement? Definition { get; init; }
     public JsonElement? Input { get; init; }
 }
@@ -828,6 +1140,13 @@ public sealed class CreateSignalRunRequest
     public string? WorkflowId { get; init; }
     public string? IdempotencyKey { get; init; }
     public JsonElement? Payload { get; init; }
+}
+
+public sealed class ImportWorkflowProfilePackRequest
+{
+    public JsonElement ProfilePack { get; init; }
+
+    public string? Name { get; init; }
 }
 
 public sealed class SaveMcpSettingsRequest
@@ -856,12 +1175,15 @@ public sealed record TestMcpProfileResponse(
 public sealed record WorkflowRunResponse(
     string RunId,
     string? WorkflowId,
+    int? WorkflowVersion,
     string WorkflowName,
     WorkflowRunTriggerType TriggerType,
     string? TriggerSource,
     string? TriggerPayloadJson,
     string? IdempotencyKey,
     bool WasDeduplicated,
+    bool CanResume,
+    DateTimeOffset? CheckpointedAtUtc,
     WorkflowRunStatus Status,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,

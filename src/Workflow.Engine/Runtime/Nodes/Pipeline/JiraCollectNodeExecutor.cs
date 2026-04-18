@@ -1,23 +1,22 @@
 using System.Text.Json.Nodes;
 
-namespace Workflow.Engine.Runtime.Nodes.Local;
+namespace Workflow.Engine.Runtime.Nodes.Pipeline;
 
 /// <summary>
-/// Что: локальная нода-заглушка для подготовки Jira-контекста.
-/// Зачем: предоставить local-only тип ноды для пайплайнов разработки без влияния на release-профиль.
+/// Что: базовая local-first нода-заглушка для подготовки Jira-контекста.
+/// Зачем: дать pipeline общий тип `jira_collect` без отдельного remote/local режима.
 /// Как: читает config.issueKey/config.summary, добавляет jira_* поля и пишет лог.
 /// </summary>
-public sealed class JiraCollectLocalNodeExecutor : IWorkflowNodeExecutor
+public sealed class JiraCollectNodeExecutor : IWorkflowNodeExecutor
 {
     public WorkflowNodeDescriptor Descriptor { get; } = new(
         Type: "jira_collect",
-        Label: "Jira Collect (Local)",
-        Description: "Collect Jira issue context (local pipeline)",
-        Inputs: 1,
+        Label: "Jira Collect",
+        Description: "Collect Jira issue context",
+        Inputs: 2,
         Outputs: 1,
-        IsLocal: true,
-        Pack: WorkflowNodePacks.LocalDevelopment,
-        Source: WorkflowNodeSources.Local,
+        Pack: WorkflowNodePacks.Core,
+        Source: WorkflowNodeSources.BuiltIn,
         ConfigFields:
         [
             new WorkflowNodeConfigFieldDescriptor(
@@ -51,6 +50,15 @@ public sealed class JiraCollectLocalNodeExecutor : IWorkflowNodeExecutor
                 FieldType: "text",
                 Description: "Optional severity/priority hint (P1, critical...).",
                 Placeholder: "P2")
+        ],
+        InputPorts:
+        [
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
+            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk)
+        ],
+        OutputPorts:
+        [
+            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
@@ -102,8 +110,8 @@ public sealed class JiraCollectLocalNodeExecutor : IWorkflowNodeExecutor
             TimestampUtc = DateTimeOffset.UtcNow,
             NodeId = context.Node.Id,
             Message = !string.IsNullOrWhiteSpace(issueKey)
-                ? $"Local Jira context collected for {issueKey}."
-                : "Local Jira context node executed."
+                ? $"Jira context collected for {issueKey}."
+                : "Jira context node executed."
         });
 
         return Task.FromResult(payload);

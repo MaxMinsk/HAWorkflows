@@ -12,6 +12,8 @@ public sealed class WorkflowRunRequest
     public string? RunId { get; init; }
 
     public string? InputJson { get; init; }
+
+    public WorkflowRuntimeCheckpoint? ResumeCheckpoint { get; init; }
 }
 
 /// <summary>
@@ -25,7 +27,8 @@ public enum WorkflowRunStatus
     Pending = 0,
     Running = 1,
     Succeeded = 2,
-    Failed = 3
+    Failed = 3,
+    Paused = 4
 }
 
 /// <summary>
@@ -123,4 +126,39 @@ public sealed class WorkflowRunResult
     public IReadOnlyList<WorkflowExecutionLogItem> Logs { get; init; } = Array.Empty<WorkflowExecutionLogItem>();
 
     public IReadOnlyList<WorkflowNodeRunResult> NodeResults { get; init; } = Array.Empty<WorkflowNodeRunResult>();
+}
+
+/// <summary>
+/// Что: runtime-снимок исполнения workflow на границе ноды.
+/// Зачем: продолжать long-running workflow после рестарта worker без повторного выполнения уже завершенных нод.
+/// Как: хранит node results, output payload-ы завершенных нод и накопленные logs; API persistence решает, где это хранить.
+/// </summary>
+public sealed class WorkflowRuntimeCheckpoint
+{
+    public required string RunId { get; init; }
+
+    public required string WorkflowName { get; init; }
+
+    public WorkflowRunStatus Status { get; init; }
+
+    public required DateTimeOffset CheckpointedAtUtc { get; init; }
+
+    public DateTimeOffset? StartedAtUtc { get; init; }
+
+    public DateTimeOffset? CompletedAtUtc { get; init; }
+
+    public string? LastNodeId { get; init; }
+
+    public string? Error { get; init; }
+
+    public string? OutputJson { get; init; }
+
+    public IReadOnlyDictionary<string, string> NodeOutputsJson { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    public IReadOnlyList<WorkflowNodeRunResult> NodeResults { get; init; } =
+        Array.Empty<WorkflowNodeRunResult>();
+
+    public IReadOnlyList<WorkflowExecutionLogItem> Logs { get; init; } =
+        Array.Empty<WorkflowExecutionLogItem>();
 }

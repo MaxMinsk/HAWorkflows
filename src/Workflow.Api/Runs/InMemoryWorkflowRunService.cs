@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Workflow.Engine.Definitions;
 using Workflow.Engine.Runtime;
 
 namespace Workflow.Api.Runs;
@@ -11,24 +13,30 @@ namespace Workflow.Api.Runs;
 /// </summary>
 public sealed class InMemoryWorkflowRunService : IWorkflowRunService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly ConcurrentDictionary<string, WorkflowRunState> _runs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _externalSignalRunIndex = new(StringComparer.Ordinal);
     private readonly IWorkflowRuntime _workflowRuntime;
+    private readonly IWorkflowRunCheckpointStore _checkpointStore;
     private readonly WorkflowRunMetrics _metrics;
     private readonly ILogger<InMemoryWorkflowRunService> _logger;
     private readonly TimeSpan _externalSignalSuppressionWindow;
 
     public InMemoryWorkflowRunService(
         IWorkflowRuntime workflowRuntime,
+        IWorkflowRunCheckpointStore checkpointStore,
         WorkflowRunMetrics metrics,
         ILogger<InMemoryWorkflowRunService> logger,
         IOptions<WorkflowRunServiceOptions> options)
     {
         _workflowRuntime = workflowRuntime;
+        _checkpointStore = checkpointStore;
         _metrics = metrics;
         _logger = logger;
         var configuredSeconds = options.Value.ExternalSignalSuppressionWindowSeconds;
         _externalSignalSuppressionWindow = TimeSpan.FromSeconds(Math.Max(1, configuredSeconds));
+        LoadCheckpointedRuns();
     }
 
     public Task<WorkflowRunSnapshot> StartRunAsync(
@@ -54,9 +62,10 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
 
         _metrics.OnRunStarted(command.TriggerType);
         _logger.LogInformation(
-            "Workflow run {RunId} accepted; workflow {WorkflowId}, trigger {TriggerType}.",
+            "Workflow run {RunId} accepted; workflow {WorkflowId}, version {WorkflowVersion}, trigger {TriggerType}.",
             runId,
             command.WorkflowId,
+            command.WorkflowVersion,
             command.TriggerType);
         StartBackgroundRun(runId, state, command);
         return Task.FromResult(ToSnapshot(state));
@@ -112,9 +121,10 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
 
             _metrics.OnRunStarted(command.TriggerType);
             _logger.LogInformation(
-                "External signal accepted as new run {RunId}; workflow {WorkflowId}, source {TriggerSource}.",
+                "External signal accepted as new run {RunId}; workflow {WorkflowId}, version {WorkflowVersion}, source {TriggerSource}.",
                 runId,
                 command.WorkflowId,
+                command.WorkflowVersion,
                 command.TriggerSource);
             StartBackgroundRun(runId, state, command);
             return ToSnapshot(state);
@@ -139,7 +149,11 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         return new WorkflowRunState(
             runId: runId,
             workflowId: command.WorkflowId,
+            workflowVersion: command.WorkflowVersion,
             workflowName: command.Definition.Name,
+            definition: command.Definition,
+            definitionJson: JsonSerializer.Serialize(command.Definition, JsonOptions),
+            inputJson: command.InputJson,
             triggerType: command.TriggerType,
             triggerSource: command.TriggerSource,
             triggerPayloadJson: command.TriggerPayloadJson,
@@ -152,6 +166,107 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                 NodeName = node.Name,
                 Status = WorkflowNodeRunStatus.Pending
             }).ToArray());
+    }
+
+    private void LoadCheckpointedRuns()
+    {
+        try
+        {
+            var checkpoints = _checkpointStore
+                .ListLatestAsync(CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+            foreach (var checkpoint in checkpoints)
+            {
+                var state = CreateRunStateFromCheckpoint(checkpoint);
+                if (_runs.TryAdd(state.RunId, state))
+                {
+                    TryIndexExternalSignalRun(state);
+                }
+            }
+
+            if (checkpoints.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Workflow run checkpoints loaded: {CheckpointCount}.",
+                    checkpoints.Count);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Workflow run checkpoints could not be loaded on startup.");
+        }
+    }
+
+    private static WorkflowRunState CreateRunStateFromCheckpoint(StoredWorkflowRunCheckpoint checkpoint)
+    {
+        var definition = JsonSerializer.Deserialize<WorkflowDefinition>(checkpoint.DefinitionJson, JsonOptions)
+                         ?? throw new InvalidOperationException(
+                             $"Checkpoint definition for run '{checkpoint.RunId}' cannot be deserialized.");
+        var nodeResults = checkpoint.RuntimeCheckpoint.NodeResults.Count > 0
+            ? checkpoint.RuntimeCheckpoint.NodeResults.Select(CloneNodeResult).ToArray()
+            : definition.Nodes.Select(node => new WorkflowNodeRunResult
+            {
+                NodeId = node.Id,
+                NodeType = node.Type,
+                NodeName = node.Name,
+                Status = WorkflowNodeRunStatus.Pending
+            }).ToArray();
+
+        var state = new WorkflowRunState(
+            runId: checkpoint.RunId,
+            workflowId: checkpoint.WorkflowId,
+            workflowVersion: checkpoint.WorkflowVersion,
+            workflowName: checkpoint.WorkflowName,
+            definition: definition,
+            definitionJson: checkpoint.DefinitionJson,
+            inputJson: checkpoint.InputJson,
+            triggerType: checkpoint.TriggerType,
+            triggerSource: checkpoint.TriggerSource,
+            triggerPayloadJson: checkpoint.TriggerPayloadJson,
+            idempotencyKey: checkpoint.IdempotencyKey,
+            createdAtUtc: checkpoint.CreatedAtUtc,
+            initialNodeResults: nodeResults)
+        {
+            Status = checkpoint.Status is WorkflowRunStatus.Pending or WorkflowRunStatus.Running
+                ? WorkflowRunStatus.Paused
+                : checkpoint.Status,
+            StartedAtUtc = checkpoint.StartedAtUtc,
+            CompletedAtUtc = checkpoint.Status is WorkflowRunStatus.Pending or WorkflowRunStatus.Running
+                ? null
+                : checkpoint.CompletedAtUtc,
+            Error = checkpoint.Status == WorkflowRunStatus.Failed ? checkpoint.Error : null,
+            OutputJson = checkpoint.OutputJson,
+            CheckpointedAtUtc = checkpoint.RuntimeCheckpoint.CheckpointedAtUtc,
+            LastCheckpoint = checkpoint.RuntimeCheckpoint
+        };
+
+        foreach (var logItem in checkpoint.RuntimeCheckpoint.Logs)
+        {
+            state.Logs.Add(CloneLogItem(logItem));
+        }
+
+        return state;
+    }
+
+    private static StartWorkflowRunCommand CreateResumeCommand(
+        WorkflowRunState state,
+        WorkflowRuntimeCheckpoint checkpoint)
+    {
+        return new StartWorkflowRunCommand
+        {
+            WorkflowId = state.WorkflowId,
+            WorkflowVersion = state.WorkflowVersion,
+            Definition = state.Definition,
+            InputJson = state.InputJson,
+            TriggerType = state.TriggerType,
+            TriggerSource = state.TriggerSource,
+            TriggerPayloadJson = state.TriggerPayloadJson,
+            IdempotencyKey = state.IdempotencyKey,
+            ResumeCheckpoint = checkpoint
+        };
     }
 
     private bool TryGetRecentRun(
@@ -191,6 +306,19 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         return true;
     }
 
+    private void TryIndexExternalSignalRun(WorkflowRunState state)
+    {
+        if (state.TriggerType != WorkflowRunTriggerType.ExternalSignal ||
+            string.IsNullOrWhiteSpace(state.WorkflowId) ||
+            string.IsNullOrWhiteSpace(state.IdempotencyKey))
+        {
+            return;
+        }
+
+        var dedupKey = $"{state.WorkflowId.Trim()}::{state.IdempotencyKey.Trim()}";
+        _externalSignalRunIndex.TryAdd(dedupKey, state.RunId);
+    }
+
     public WorkflowRunSnapshot? GetRun(string runId)
     {
         if (!_runs.TryGetValue(runId, out var state))
@@ -216,6 +344,59 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         }
     }
 
+    public async Task<WorkflowRunSnapshot?> ResumeRunAsync(
+        string runId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return null;
+        }
+
+        runId = runId.Trim();
+        if (!_runs.TryGetValue(runId, out var state))
+        {
+            var checkpoint = await _checkpointStore.TryReadLatestAsync(runId, cancellationToken)
+                .ConfigureAwait(false);
+            if (checkpoint is null)
+            {
+                return null;
+            }
+
+            state = CreateRunStateFromCheckpoint(checkpoint);
+            _runs.TryAdd(runId, state);
+            TryIndexExternalSignalRun(state);
+        }
+
+        WorkflowRuntimeCheckpoint? checkpointToResume;
+        lock (state.SyncRoot)
+        {
+            if (state.Status is WorkflowRunStatus.Running or WorkflowRunStatus.Succeeded)
+            {
+                return ToSnapshot(state);
+            }
+
+            checkpointToResume = state.LastCheckpoint;
+            if (checkpointToResume is null)
+            {
+                return ToSnapshot(state);
+            }
+
+            state.Status = WorkflowRunStatus.Pending;
+            state.CompletedAtUtc = null;
+            state.Error = null;
+        }
+
+        var command = CreateResumeCommand(state, checkpointToResume);
+        _logger.LogInformation(
+            "Workflow run {RunId} resume accepted from checkpoint {CheckpointedAtUtc}.",
+            runId,
+            checkpointToResume.CheckpointedAtUtc);
+        _metrics.OnRunStarted(state.TriggerType);
+        StartBackgroundRun(runId, state, command);
+        return ToSnapshot(state);
+    }
+
     private async Task ExecuteRunAsync(
         string runId,
         WorkflowRunState state,
@@ -225,6 +406,7 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         {
             ["RunId"] = runId,
             ["WorkflowId"] = state.WorkflowId,
+            ["WorkflowVersion"] = state.WorkflowVersion,
             ["TriggerType"] = state.TriggerType.ToString()
         });
 
@@ -239,11 +421,12 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             _logger.LogInformation("Workflow run execution started.");
 
             var runtimeResult = await _workflowRuntime.ExecuteAsync(
-                command.Definition,
+                state.Definition,
                 new WorkflowRunRequest
                 {
                     RunId = runId,
-                    InputJson = command.InputJson
+                    InputJson = state.InputJson,
+                    ResumeCheckpoint = command.ResumeCheckpoint
                 },
                 async (nodeUpdate, _) =>
                 {
@@ -258,6 +441,17 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                         nodeUpdate.NodeId,
                         nodeUpdate.Status);
                     await Task.CompletedTask;
+                },
+                async (checkpoint, checkpointCancellationToken) =>
+                {
+                    lock (state.SyncRoot)
+                    {
+                        state.LastCheckpoint = checkpoint;
+                        state.CheckpointedAtUtc = checkpoint.CheckpointedAtUtc;
+                    }
+
+                    await PersistCheckpointAsync(state, checkpoint, checkpointCancellationToken)
+                        .ConfigureAwait(false);
                 },
                 CancellationToken.None);
 
@@ -285,6 +479,12 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                 }
             }
 
+            await PersistCheckpointAsync(
+                    state,
+                    CreateFinalCheckpoint(state),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+
             _logger.LogInformation(
                 "Workflow run completed with status {Status}.",
                 state.Status);
@@ -302,21 +502,113 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             _logger.LogError(
                 exception,
                 "Workflow run failed with unhandled exception.");
+            await PersistCheckpointAsync(
+                    state,
+                    CreateFinalCheckpoint(state),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
             ReportRunCompletedMetrics(state);
+        }
+    }
+
+    private async Task PersistCheckpointAsync(
+        WorkflowRunState state,
+        WorkflowRuntimeCheckpoint runtimeCheckpoint,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            lock (state.SyncRoot)
+            {
+                state.LastCheckpoint = runtimeCheckpoint;
+                state.CheckpointedAtUtc = runtimeCheckpoint.CheckpointedAtUtc;
+            }
+
+            await _checkpointStore
+                .SaveAsync(CreateStoredCheckpoint(state, runtimeCheckpoint), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Workflow run checkpoint persist failed for run {RunId}.",
+                state.RunId);
+        }
+    }
+
+    private static StoredWorkflowRunCheckpoint CreateStoredCheckpoint(
+        WorkflowRunState state,
+        WorkflowRuntimeCheckpoint runtimeCheckpoint)
+    {
+        lock (state.SyncRoot)
+        {
+            return new StoredWorkflowRunCheckpoint
+            {
+                RunId = state.RunId,
+                WorkflowId = state.WorkflowId,
+                WorkflowVersion = state.WorkflowVersion,
+                WorkflowName = state.WorkflowName,
+                DefinitionJson = state.DefinitionJson,
+                InputJson = state.InputJson,
+                TriggerType = state.TriggerType,
+                TriggerSource = state.TriggerSource,
+                TriggerPayloadJson = state.TriggerPayloadJson,
+                IdempotencyKey = state.IdempotencyKey,
+                CreatedAtUtc = state.CreatedAtUtc,
+                Status = state.Status,
+                StartedAtUtc = state.StartedAtUtc,
+                CompletedAtUtc = state.CompletedAtUtc,
+                Error = state.Error,
+                OutputJson = state.OutputJson,
+                RuntimeCheckpoint = runtimeCheckpoint
+            };
+        }
+    }
+
+    private static WorkflowRuntimeCheckpoint CreateFinalCheckpoint(WorkflowRunState state)
+    {
+        lock (state.SyncRoot)
+        {
+            return new WorkflowRuntimeCheckpoint
+            {
+                RunId = state.RunId,
+                WorkflowName = state.WorkflowName,
+                Status = state.Status,
+                CheckpointedAtUtc = DateTimeOffset.UtcNow,
+                StartedAtUtc = state.StartedAtUtc,
+                CompletedAtUtc = state.CompletedAtUtc,
+                LastNodeId = state.LastCheckpoint?.LastNodeId,
+                Error = state.Error,
+                OutputJson = state.OutputJson,
+                NodeOutputsJson = state.LastCheckpoint?.NodeOutputsJson ??
+                                  new Dictionary<string, string>(StringComparer.Ordinal),
+                NodeResults = state.NodeResults.Select(CloneNodeResult).ToArray(),
+                Logs = state.Logs.Select(CloneLogItem).ToArray()
+            };
         }
     }
 
     private void ReportRunCompletedMetrics(WorkflowRunState state)
     {
-        var startedAtUtc = state.StartedAtUtc ?? state.CreatedAtUtc;
-        var completedAtUtc = state.CompletedAtUtc ?? DateTimeOffset.UtcNow;
-        var duration = completedAtUtc - startedAtUtc;
-        if (duration < TimeSpan.Zero)
+        WorkflowRunMetricsRunRecord record;
+        lock (state.SyncRoot)
         {
-            duration = TimeSpan.Zero;
+            record = new WorkflowRunMetricsRunRecord(
+                RunId: state.RunId,
+                WorkflowId: state.WorkflowId,
+                WorkflowVersion: state.WorkflowVersion,
+                WorkflowName: state.WorkflowName,
+                TriggerType: state.TriggerType,
+                Status: state.Status,
+                CreatedAtUtc: state.CreatedAtUtc,
+                StartedAtUtc: state.StartedAtUtc,
+                CompletedAtUtc: state.CompletedAtUtc,
+                Error: state.Error,
+                NodeResults: state.NodeResults.Select(CloneNodeResult).ToArray());
         }
 
-        _metrics.OnRunCompleted(state.Status, duration, state.TriggerType);
+        _metrics.OnRunCompleted(record);
     }
 
     private static void ApplyNodeUpdate(
@@ -356,12 +648,16 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             {
                 RunId = state.RunId,
                 WorkflowId = state.WorkflowId,
+                WorkflowVersion = state.WorkflowVersion,
                 WorkflowName = state.WorkflowName,
                 TriggerType = state.TriggerType,
                 TriggerSource = state.TriggerSource,
                 TriggerPayloadJson = state.TriggerPayloadJson,
                 IdempotencyKey = state.IdempotencyKey,
                 WasDeduplicated = wasDeduplicated,
+                CanResume = state.LastCheckpoint is not null &&
+                            state.Status is not WorkflowRunStatus.Running and not WorkflowRunStatus.Succeeded,
+                CheckpointedAtUtc = state.CheckpointedAtUtc,
                 Status = state.Status,
                 CreatedAtUtc = state.CreatedAtUtc,
                 StartedAtUtc = state.StartedAtUtc,
@@ -404,12 +700,26 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         };
     }
 
+    private static WorkflowExecutionLogItem CloneLogItem(WorkflowExecutionLogItem source)
+    {
+        return new WorkflowExecutionLogItem
+        {
+            TimestampUtc = source.TimestampUtc,
+            NodeId = source.NodeId,
+            Message = source.Message
+        };
+    }
+
     private sealed class WorkflowRunState
     {
         public WorkflowRunState(
             string runId,
             string? workflowId,
+            int? workflowVersion,
             string workflowName,
+            WorkflowDefinition definition,
+            string definitionJson,
+            string? inputJson,
             WorkflowRunTriggerType triggerType,
             string? triggerSource,
             string? triggerPayloadJson,
@@ -419,7 +729,11 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         {
             RunId = runId;
             WorkflowId = workflowId;
+            WorkflowVersion = workflowVersion;
             WorkflowName = workflowName;
+            Definition = definition;
+            DefinitionJson = definitionJson;
+            InputJson = inputJson;
             TriggerType = triggerType;
             TriggerSource = triggerSource;
             TriggerPayloadJson = triggerPayloadJson;
@@ -438,7 +752,15 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
 
         public string? WorkflowId { get; }
 
+        public int? WorkflowVersion { get; }
+
         public string WorkflowName { get; }
+
+        public WorkflowDefinition Definition { get; }
+
+        public string DefinitionJson { get; }
+
+        public string? InputJson { get; }
 
         public WorkflowRunTriggerType TriggerType { get; }
 
@@ -459,6 +781,10 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         public string? Error { get; set; }
 
         public string? OutputJson { get; set; }
+
+        public DateTimeOffset? CheckpointedAtUtc { get; set; }
+
+        public WorkflowRuntimeCheckpoint? LastCheckpoint { get; set; }
 
         public List<WorkflowNodeRunResult> NodeResults { get; }
 

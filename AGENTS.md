@@ -10,6 +10,8 @@
 - для platform/runtime задач работаем по [Notes~/Workflow server/backlog.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/Notes~/Workflow server/backlog.md) (`P0 -> P1`);
 - для задач локального пайплайна используем **отдельный backlog**: [Notes~/Workflow server/local-pipeline.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/Notes~/Workflow server/local-pipeline.md);
 - после завершения задачи обновляем соответствующий backlog (`Done` + `Now`);
+- после каждой завершенной задачи делаем git commit в текущей рабочей ветке;
+- push/release выполняем только по явному запросу пользователя;
 - тесты откладываем до завершения модуля;
 - после задачи запускаем локально и выполняем ручную проверку;
 - оставляем сервисы запущенными, чтобы пользователь мог проверить.
@@ -19,7 +21,8 @@
 
 - Текущий фокус: **локальный workflow** (не server-first).
 - Активная ветка разработки для этого трека: `codex/local-flow`.
-- Новую работу по local-first workflow ведем в этой ветке, пока явно не решим перейти на другую.
+- Новую работу по local-first workflow ведем в текущей ветке `codex/local-flow`, пока явно не решим перейти на другую.
+- Не проектируем отдельный remote/local product split на текущем этапе: сначала обкатываем local workflow, а remote/corporate режим вернем позже как deployment/runtime profile.
 - Продуктовая цель: внутренний инструмент для разработчиков компании.
 - Инструмент должен позволять разработчикам делиться между собой:
   - настройками workflow;

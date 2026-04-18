@@ -48,9 +48,7 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
 
   const runActions = useRunActions({
     apiClient,
-    validateCurrentGraph: editor.validateCurrentGraph,
-    workflowName,
-    currentWorkflowId: storage.currentWorkflowId,
+    saveCurrentDraft: storage.saveCurrentDraft,
     startRunPolling: runs.startRunPolling,
     stopRunPolling: runs.stopRunPolling,
     onStatus: ui.setStatusMessage,
@@ -107,6 +105,8 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
     isCanvasEmpty: editor.isCanvasEmpty,
     workflowName,
     currentWorkflowId: storage.currentWorkflowId,
+    currentWorkflowVersion: storage.currentWorkflowVersion,
+    currentPublishedVersion: storage.currentPublishedVersion,
     storedWorkflows: storage.storedWorkflows,
     inspector: editor.inspector,
     inspectorEnabled: editor.inspectorEnabled,
@@ -126,7 +126,11 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
     onUpdateNode: editor.onUpdateNode,
     onLoad: storage.onLoad,
     onSave: storage.onSave,
+    onPublish: storage.onPublish,
+    onExportProfile: storage.onExportProfile,
+    onImportProfileFile: storage.onImportProfileFile,
     onRun: runActions.onRun,
+    onResumeRun: runActions.onResume,
     onStop: runActions.onStop,
     onRefreshStored: storage.onRefreshStored,
     onOpenStoredWorkflow: storage.onOpenStoredWorkflow

@@ -4,14 +4,14 @@ using Workflow.Engine.Runtime.Agents;
 using Workflow.Engine.Runtime.Artifacts;
 using Workflow.Engine.Runtime.Routing;
 
-namespace Workflow.Engine.Runtime.Nodes.Local;
+namespace Workflow.Engine.Runtime.Nodes.Pipeline;
 
 /// <summary>
-/// Что: local-only нода выполнения agent task через provider-neutral adapter.
+/// Что: базовая нода выполнения agent task через provider-neutral adapter.
 /// Зачем: запускать Cursor/Claude/другой coding-agent как шаг workflow, не вшивая provider в runtime.
 /// Как: резолвит `agentProfile` через IAgentExecutorCatalog и вызывает Ask или CreateTask/GetStatus/GetResult.
 /// </summary>
-public sealed class AgentTaskLocalNodeExecutor : IWorkflowNodeExecutor
+public sealed class AgentTaskNodeExecutor : IWorkflowNodeExecutor
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -20,13 +20,12 @@ public sealed class AgentTaskLocalNodeExecutor : IWorkflowNodeExecutor
 
     public WorkflowNodeDescriptor Descriptor { get; } = new(
         Type: "agent_task",
-        Label: "Agent Task (Local)",
-        Description: "Run a local agent adapter task",
-        Inputs: 1,
+        Label: "Agent Task",
+        Description: "Run an agent adapter task",
+        Inputs: 3,
         Outputs: 1,
-        IsLocal: true,
-        Pack: WorkflowNodePacks.LocalDevelopment,
-        Source: WorkflowNodeSources.Local,
+        Pack: WorkflowNodePacks.Core,
+        Source: WorkflowNodeSources.BuiltIn,
         UsesModel: true,
         ConfigFields:
         [
@@ -112,7 +111,9 @@ public sealed class AgentTaskLocalNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
+            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk),
+            new WorkflowNodePortDescriptor("input_3", "Approval Gate", WorkflowPortChannels.ControlApprovalRequired)
         ],
         OutputPorts:
         [

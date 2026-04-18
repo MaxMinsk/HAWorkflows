@@ -26,6 +26,7 @@ interface InspectorPanelProps {
   onUpdateNode: () => void;
   onDeleteNode: () => void;
   onDisconnectConnection: (connection: DrawflowConnectionShape) => void;
+  onResumeRun: (runId: string) => void;
 }
 
 export function InspectorPanel({
@@ -39,7 +40,8 @@ export function InspectorPanel({
   onInspectorFieldChange,
   onUpdateNode,
   onDeleteNode,
-  onDisconnectConnection
+  onDisconnectConnection,
+  onResumeRun
 }: InspectorPanelProps) {
   const selectedTemplate = nodeTemplates[inspector.nodeType];
   const configFields = selectedTemplate?.configFields ?? [];
@@ -190,7 +192,12 @@ export function InspectorPanel({
       <ValidationList errors={validationErrors} />
 
       <h3>Run Timeline</h3>
-      <RunTimeline run={runData.run} nodes={runData.nodes} />
+      <RunTimeline
+        run={runData.run}
+        nodes={runData.nodes}
+        artifacts={runData.artifacts}
+        onResumeRun={onResumeRun}
+      />
     </aside>
   );
 }

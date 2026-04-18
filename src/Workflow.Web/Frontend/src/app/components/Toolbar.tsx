@@ -10,6 +10,7 @@ interface ToolbarProps {
   statusDotColor: string;
   onLoad: () => void;
   onSave: () => void;
+  onPublish: () => void;
   onRun: () => void;
   onStop: () => void;
   onOpenSettings: () => void;
@@ -20,6 +21,7 @@ export function Toolbar({
   statusDotColor,
   onLoad,
   onSave,
+  onPublish,
   onRun,
   onStop,
   onOpenSettings
@@ -37,6 +39,9 @@ export function Toolbar({
         </button>
         <button className="btn btn-primary" type="button" onClick={onSave}>
           Save
+        </button>
+        <button className="btn" type="button" onClick={onPublish}>
+          Publish
         </button>
         <button className="btn" type="button" onClick={onRun}>
           Run

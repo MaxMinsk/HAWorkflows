@@ -14,7 +14,7 @@ interface UseRunPollingProps {
 }
 
 export function useRunPolling({ apiClient, onStatus, onToast }: UseRunPollingProps) {
-  const [runData, setRunData] = useState<RunData>({ run: null, nodes: [] });
+  const [runData, setRunData] = useState<RunData>({ run: null, nodes: [], artifacts: [] });
   const runPollingTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -33,12 +33,13 @@ export function useRunPolling({ apiClient, onStatus, onToast }: UseRunPollingPro
   }, []);
 
   const fetchRunState = useCallback(async (runId: string): Promise<boolean> => {
-    const [run, nodes] = await Promise.all([
+    const [run, nodes, artifacts] = await Promise.all([
       apiClient.getRun(runId),
-      apiClient.getRunNodes(runId)
+      apiClient.getRunNodes(runId),
+      apiClient.getRunArtifacts(runId)
     ]);
 
-    setRunData({ run, nodes });
+    setRunData({ run, nodes, artifacts });
 
     const statusValue = String(run.status || "").toLowerCase();
     if (statusValue === "running" || statusValue === "pending") {
@@ -49,6 +50,11 @@ export function useRunPolling({ apiClient, onStatus, onToast }: UseRunPollingPro
     if (statusValue === "succeeded") {
       onStatus(`Run ${runId.slice(0, 8)} succeeded`, "idle");
       onToast("Run completed");
+      return true;
+    }
+
+    if (statusValue === "paused") {
+      onStatus(`Run ${runId.slice(0, 8)} paused`, "idle");
       return true;
     }
 

@@ -15,7 +15,6 @@ public sealed class OutputNodeExecutor : IWorkflowNodeExecutor
         Description: "Final result",
         Inputs: 1,
         Outputs: 0,
-        IsLocal: false,
         ProducesRunOutput: true);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

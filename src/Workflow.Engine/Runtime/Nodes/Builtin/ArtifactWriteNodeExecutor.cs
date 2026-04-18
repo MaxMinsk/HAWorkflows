@@ -22,7 +22,6 @@ public sealed class ArtifactWriteNodeExecutor : IWorkflowNodeExecutor
         Description: "Save payload as workspace artifact",
         Inputs: 1,
         Outputs: 1,
-        IsLocal: false,
         ConfigFields:
         [
             new WorkflowNodeConfigFieldDescriptor(

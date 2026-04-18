@@ -1,14 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace Workflow.Engine.Runtime.Nodes.Local;
+namespace Workflow.Engine.Runtime.Nodes.Pipeline;
 
 /// <summary>
-/// Что: локальная нода выбора pipeline-шаблона.
+/// Что: нода выбора pipeline-шаблона.
 /// Зачем: ранняя маршрутизация run по типу задачи (bugfix/feature/incident/tech_debt) до этапов collect/plan.
 /// Как: анализирует config + payload сигналы (issue type/labels/severity) и записывает template + branch flags.
 /// </summary>
-public sealed class TemplateSelectLocalNodeExecutor : IWorkflowNodeExecutor
+public sealed class TemplateSelectNodeExecutor : IWorkflowNodeExecutor
 {
     private const string BugfixTemplate = "bugfix";
     private const string FeatureTemplate = "feature";
@@ -25,13 +25,12 @@ public sealed class TemplateSelectLocalNodeExecutor : IWorkflowNodeExecutor
 
     public WorkflowNodeDescriptor Descriptor { get; } = new(
         Type: "template_select",
-        Label: "Template Select (Local)",
-        Description: "Select local pipeline template from issue signals",
+        Label: "Template Select",
+        Description: "Select pipeline template from issue signals",
         Inputs: 1,
-        Outputs: 1,
-        IsLocal: true,
-        Pack: WorkflowNodePacks.LocalDevelopment,
-        Source: WorkflowNodeSources.Local,
+        Outputs: 4,
+        Pack: WorkflowNodePacks.Core,
+        Source: WorkflowNodeSources.BuiltIn,
         ConfigFields:
         [
             new WorkflowNodeConfigFieldDescriptor(
@@ -47,6 +46,29 @@ public sealed class TemplateSelectLocalNodeExecutor : IWorkflowNodeExecutor
                 FieldType: "select",
                 Description: "Override heuristic and always use selected template.",
                 Options: CreateForceTemplateOptions())
+        ],
+        InputPorts:
+        [
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data)
+        ],
+        OutputPorts:
+        [
+            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data),
+            new WorkflowNodePortDescriptor(
+                "output_2",
+                "Requires Logs",
+                WorkflowPortChannels.ControlOk,
+                ControlConditionKey: "pipeline_branches.requires_logs_collect"),
+            new WorkflowNodePortDescriptor(
+                "output_3",
+                "Requires Wiki",
+                WorkflowPortChannels.ControlOk,
+                ControlConditionKey: "pipeline_branches.requires_wiki_collect"),
+            new WorkflowNodePortDescriptor(
+                "output_4",
+                "Requires Approval",
+                WorkflowPortChannels.ControlApprovalRequired,
+                ControlConditionKey: "pipeline_branches.requires_human_approve")
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

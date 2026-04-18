@@ -26,7 +26,7 @@ public sealed class WorkflowDefinition
 /// <summary>
 /// Что: описание ноды workflow.
 /// Зачем: задает id/type/name/config для исполнения конкретного шага.
-/// Как: type сверяется с активным runtime-каталогом нод (built-in/local profile).
+/// Как: type сверяется с активным runtime-каталогом нод.
 /// </summary>
 public sealed class WorkflowNodeDefinition
 {

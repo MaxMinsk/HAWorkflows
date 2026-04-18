@@ -15,7 +15,6 @@ public sealed class TaskTextInputNodeExecutor : IWorkflowNodeExecutor
         Description: "Start from plain text task",
         Inputs: 0,
         Outputs: 1,
-        IsLocal: false,
         ConfigFields:
         [
             new WorkflowNodeConfigFieldDescriptor(

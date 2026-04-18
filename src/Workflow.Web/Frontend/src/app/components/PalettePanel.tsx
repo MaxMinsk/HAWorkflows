@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import type { NodeTemplatesMap, StoredWorkflowSummary } from "../../shared/types/workflow";
 import { StoredWorkflowList } from "../../features/workflow/StoredWorkflowList";
 
@@ -10,6 +10,8 @@ import { StoredWorkflowList } from "../../features/workflow/StoredWorkflowList";
 interface PalettePanelProps {
   workflowName: string;
   currentWorkflowId: string | null;
+  currentWorkflowVersion: number | null;
+  currentPublishedVersion: number | null;
   storedWorkflows: StoredWorkflowSummary[];
   nodeTypes: string[];
   nodeTemplates: NodeTemplatesMap;
@@ -17,20 +19,37 @@ interface PalettePanelProps {
   onAddNode: (type: string) => void;
   onRefreshStored: () => void;
   onOpenStoredWorkflow: (workflowId: string) => void;
+  onExportProfile: () => void;
+  onImportProfileFile: (file: File) => void;
 }
 
 export function PalettePanel({
   workflowName,
   currentWorkflowId,
+  currentWorkflowVersion,
+  currentPublishedVersion,
   storedWorkflows,
   nodeTypes,
   nodeTemplates,
   onWorkflowNameChange,
   onAddNode,
   onRefreshStored,
-  onOpenStoredWorkflow
+  onOpenStoredWorkflow,
+  onExportProfile,
+  onImportProfileFile
 }: PalettePanelProps) {
   const nodeGroups = groupNodeTypesByPack(nodeTypes, nodeTemplates);
+  const profileImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  function onImportInputChanged(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    onImportProfileFile(file);
+  }
 
   return (
     <aside className="panel palette-panel" aria-label="Node palette">
@@ -51,13 +70,20 @@ export function PalettePanel({
         <span>Current ID:</span>
         <span>{currentWorkflowId || "new"}</span>
       </div>
+      <div className="meta-line">
+        <span>Draft version:</span>
+        <span>{currentWorkflowVersion ? `v${currentWorkflowVersion}` : "unsaved"}</span>
+      </div>
+      <div className="meta-line">
+        <span>Published:</span>
+        <span>{currentPublishedVersion ? `v${currentPublishedVersion}` : "none"}</span>
+      </div>
 
       <div className="node-pack-list">
         {nodeGroups.map((group) => (
           <section className="node-pack-group" key={group.pack}>
             <div className="node-pack-title">
               <span>{formatPackLabel(group.pack)}</span>
-              {group.hasLocalNodes && <span className="node-pack-badge">local</span>}
             </div>
             {group.types.map((type) => (
               <button
@@ -80,7 +106,20 @@ export function PalettePanel({
         <button className="btn" type="button" onClick={onRefreshStored}>
           Refresh
         </button>
+        <button className="btn" type="button" onClick={onExportProfile}>
+          Export Profile
+        </button>
+        <button className="btn" type="button" onClick={() => profileImportInputRef.current?.click()}>
+          Import Profile
+        </button>
       </div>
+      <input
+        ref={profileImportInputRef}
+        type="file"
+        accept="application/json,.json,.workflow-profile.json"
+        hidden
+        onChange={onImportInputChanged}
+      />
 
       <StoredWorkflowList items={storedWorkflows} onOpen={onOpenStoredWorkflow} />
     </aside>
@@ -90,7 +129,6 @@ export function PalettePanel({
 interface NodePackGroup {
   pack: string;
   types: string[];
-  hasLocalNodes: boolean;
 }
 
 function groupNodeTypesByPack(nodeTypes: string[], nodeTemplates: NodeTemplatesMap): NodePackGroup[] {
@@ -101,12 +139,10 @@ function groupNodeTypesByPack(nodeTypes: string[], nodeTemplates: NodeTemplatesM
     const pack = template?.pack || "core";
     const group = groups.get(pack) ?? {
       pack,
-      types: [],
-      hasLocalNodes: false
+      types: []
     };
 
     group.types.push(type);
-    group.hasLocalNodes = group.hasLocalNodes || template?.source === "local" || template?.isLocal === true;
     groups.set(pack, group);
   });
 
@@ -132,5 +168,5 @@ function formatPackLabel(pack: string): string {
 }
 
 function formatSourceLabel(source: string | undefined): string {
-  return source === "local" ? "local" : "built-in";
+  return source || "built-in";
 }

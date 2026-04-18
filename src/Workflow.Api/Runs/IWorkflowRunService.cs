@@ -15,6 +15,8 @@ public interface IWorkflowRunService
         StartWorkflowRunCommand command,
         CancellationToken cancellationToken);
 
+    Task<WorkflowRunSnapshot?> ResumeRunAsync(string runId, CancellationToken cancellationToken);
+
     WorkflowRunSnapshot? GetRun(string runId);
 
     IReadOnlyList<WorkflowNodeRunResult>? GetRunNodes(string runId);
@@ -41,6 +43,8 @@ public sealed class StartWorkflowRunCommand
 {
     public string? WorkflowId { get; init; }
 
+    public int? WorkflowVersion { get; init; }
+
     public required WorkflowDefinition Definition { get; init; }
 
     public string? InputJson { get; init; }
@@ -52,6 +56,8 @@ public sealed class StartWorkflowRunCommand
     public string? TriggerPayloadJson { get; init; }
 
     public string? IdempotencyKey { get; init; }
+
+    public WorkflowRuntimeCheckpoint? ResumeCheckpoint { get; init; }
 }
 
 /// <summary>
@@ -65,6 +71,8 @@ public sealed class WorkflowRunSnapshot
 
     public string? WorkflowId { get; init; }
 
+    public int? WorkflowVersion { get; init; }
+
     public required string WorkflowName { get; init; }
 
     public WorkflowRunTriggerType TriggerType { get; init; } = WorkflowRunTriggerType.Manual;
@@ -76,6 +84,10 @@ public sealed class WorkflowRunSnapshot
     public string? IdempotencyKey { get; init; }
 
     public bool WasDeduplicated { get; init; }
+
+    public bool CanResume { get; init; }
+
+    public DateTimeOffset? CheckpointedAtUtc { get; init; }
 
     public required WorkflowRunStatus Status { get; init; }
 
