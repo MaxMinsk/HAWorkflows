@@ -84,6 +84,14 @@ export interface RunNodeState {
   startedAtUtc?: string | null;
   completedAtUtc?: string | null;
   error?: string | null;
+  routingStage?: string | null;
+  selectedTier?: string | null;
+  selectedModel?: string | null;
+  thinkingMode?: string | null;
+  routeReason?: string | null;
+  routingConfidence?: number | null;
+  routingRetryCount?: number | null;
+  routingBudgetRemaining?: number | null;
 }
 
 export interface RunData {
@@ -96,10 +104,57 @@ export interface NodeTemplate {
   outputs: number;
   label: string;
   description: string;
+  pack?: string;
+  source?: string;
+  isLocal?: boolean;
+  usesModel?: boolean;
+  inputPorts?: NodeTemplatePort[];
+  outputPorts?: NodeTemplatePort[];
+  configFields?: NodeTemplateConfigField[];
 }
 
 export interface NodeTemplatesMap {
   [type: string]: NodeTemplate;
+}
+
+export interface NodeTemplateConfigFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface NodeTemplateConfigField {
+  key: string;
+  label: string;
+  fieldType: "text" | "textarea" | "select";
+  description?: string | null;
+  required?: boolean;
+  multiline?: boolean;
+  placeholder?: string | null;
+  defaultValue?: string | null;
+  options?: NodeTemplateConfigFieldOption[];
+}
+
+export type WorkflowPortChannel =
+  | "data"
+  | "artifact_ref"
+  | "memory_ref"
+  | "control_ok"
+  | "control_fail"
+  | "control_approval_required"
+  | string;
+
+export interface NodeTemplatePort {
+  id: string;
+  label: string;
+  channel: WorkflowPortChannel;
+  required?: boolean;
+  acceptedKinds?: string[];
+}
+
+export interface WorkflowDataEnvelope<TPayload = unknown> {
+  kind: string;
+  schemaVersion: string;
+  payload: TPayload;
 }
 
 export interface ClipboardNode {
@@ -182,12 +237,58 @@ export interface InspectorState {
 }
 
 export interface WorkflowApiClient {
+  getNodeTemplates: () => Promise<NodeTemplatesMap>;
   listWorkflows: () => Promise<StoredWorkflowSummary[]>;
   getWorkflow: (workflowId: string) => Promise<StoredWorkflowDetails>;
   saveWorkflow: (payload: SaveWorkflowRequest) => Promise<StoredWorkflowSummary>;
   startRun: (payload: StartRunRequest) => Promise<{ runId: string }>;
   getRun: (runId: string) => Promise<RunState>;
   getRunNodes: (runId: string) => Promise<RunNodeState[]>;
+  getMcpSettings: () => Promise<McpSettingsResponse>;
+  saveMcpSettings: (settings: McpSettingsDocument) => Promise<McpSettingsResponse>;
+  testMcpProfile: (request: TestMcpProfileRequest) => Promise<TestMcpProfileResponse>;
+}
+
+export interface McpSettingsResponse {
+  configPath: string;
+  exists: boolean;
+  settings: McpSettingsDocument;
+}
+
+export interface McpSettingsDocument {
+  defaultProfile: string;
+  profiles: Record<string, McpServerProfile>;
+}
+
+export interface McpServerProfile {
+  enabled?: boolean;
+  type?: string;
+  transport?: string | null;
+  endpoint?: string | null;
+  bearerToken?: string | null;
+  bearerTokenEnvironmentVariable?: string | null;
+  headers?: Record<string, string>;
+  allowedTools?: string[];
+  blockedTools?: string[];
+  timeoutSeconds?: number;
+}
+
+export interface TestMcpProfileRequest {
+  serverProfile: string;
+  timeoutSeconds?: number;
+}
+
+export interface TestMcpProfileResponse {
+  profile: string;
+  serverType: string;
+  toolCount: number;
+  tools: McpToolDescriptor[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface McpToolDescriptor {
+  name: string;
+  description?: string | null;
 }
 
 export interface WorkflowStorageAdapter {
@@ -216,8 +317,10 @@ export interface WorkflowBuilderViewModel {
   validationErrors: string[];
   runData: RunData;
   nodeTypes: string[];
+  nodeTemplates: NodeTemplatesMap;
   editorContainerRef: { current: HTMLDivElement | null };
   setWorkflowName: (name: string) => void;
+  mcpSettings: McpSettingsDialogState;
   updateInspectorField: (field: keyof InspectorState, value: string) => void;
   addNode: (type: string, x?: number, y?: number) => void;
   removeSelectedNode: () => void;
@@ -230,4 +333,21 @@ export interface WorkflowBuilderViewModel {
   onStop: () => void;
   onRefreshStored: () => Promise<void>;
   onOpenStoredWorkflow: (workflowId: string) => Promise<void>;
+}
+
+export interface McpSettingsDialogState {
+  isOpen: boolean;
+  isBusy: boolean;
+  configPath: string;
+  exists: boolean;
+  settingsText: string;
+  selectedProfile: string;
+  error: string | null;
+  testResult: TestMcpProfileResponse | null;
+  open: () => Promise<void>;
+  close: () => void;
+  save: () => Promise<void>;
+  test: () => Promise<void>;
+  setSettingsText: (value: string) => void;
+  setSelectedProfile: (value: string) => void;
 }

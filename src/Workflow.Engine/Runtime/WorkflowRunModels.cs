@@ -9,6 +9,8 @@ namespace Workflow.Engine.Runtime;
 /// </summary>
 public sealed class WorkflowRunRequest
 {
+    public string? RunId { get; init; }
+
     public string? InputJson { get; init; }
 }
 
@@ -63,6 +65,22 @@ public sealed class WorkflowNodeRunResult
     public string? Error { get; set; }
 
     public string? OutputJson { get; set; }
+
+    public string? RoutingStage { get; set; }
+
+    public string? SelectedTier { get; set; }
+
+    public string? SelectedModel { get; set; }
+
+    public string? ThinkingMode { get; set; }
+
+    public string? RouteReason { get; set; }
+
+    public double? RoutingConfidence { get; set; }
+
+    public int? RoutingRetryCount { get; set; }
+
+    public double? RoutingBudgetRemaining { get; set; }
 }
 
 /// <summary>
@@ -100,8 +118,9 @@ public sealed class WorkflowRunResult
 
     public string? OutputJson { get; init; }
 
+    public IReadOnlyList<Artifacts.WorkflowArtifactDescriptor> Artifacts { get; init; } = Array.Empty<Artifacts.WorkflowArtifactDescriptor>();
+
     public IReadOnlyList<WorkflowExecutionLogItem> Logs { get; init; } = Array.Empty<WorkflowExecutionLogItem>();
 
     public IReadOnlyList<WorkflowNodeRunResult> NodeResults { get; init; } = Array.Empty<WorkflowNodeRunResult>();
 }
-

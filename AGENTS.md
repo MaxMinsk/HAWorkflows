@@ -1,18 +1,33 @@
-# AGENTS.md — Worflows
+# AGENTS.md — HAWorkflows
 
 ## Обязательный процесс
 
 Для всех задач в этом проекте обязательно соблюдать flow из:
-- [Notes~/Workflow server/development_flow.md](/Users/maximkaz/Documents/Education AI/Worflows/Notes~/Workflow server/development_flow.md)
-- [src/Workflow.Web/Frontend/README.md](/Users/maximkaz/Documents/Education AI/Worflows/src/Workflow.Web/Frontend/README.md)
+- [Notes~/Workflow server/development_flow.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/Notes~/Workflow server/development_flow.md)
+- [src/Workflow.Web/Frontend/README.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/src/Workflow.Web/Frontend/README.md)
 
 Ключевые правила (обязательно):
-- работаем по backlog (`P0 -> P1`);
-- после завершения задачи обновляем `backlog.md` (`Done` + `Now`);
+- для platform/runtime задач работаем по [Notes~/Workflow server/backlog.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/Notes~/Workflow server/backlog.md) (`P0 -> P1`);
+- для задач локального пайплайна используем **отдельный backlog**: [Notes~/Workflow server/local-pipeline.md](/Users/maximkaz/Documents/Education AI/HAWorkflows/Notes~/Workflow server/local-pipeline.md);
+- после завершения задачи обновляем соответствующий backlog (`Done` + `Now`);
 - тесты откладываем до завершения модуля;
 - после задачи запускаем локально и выполняем ручную проверку;
 - оставляем сервисы запущенными, чтобы пользователь мог проверить.
 - для frontend решений считаем `src/Workflow.Web/Frontend/README.md` source of truth по архитектурным и TS-принципам.
+
+## Текущий продуктовый фокус (обязательно)
+
+- Текущий фокус: **локальный workflow** (не server-first).
+- Активная ветка разработки для этого трека: `codex/local-flow`.
+- Новую работу по local-first workflow ведем в этой ветке, пока явно не решим перейти на другую.
+- Продуктовая цель: внутренний инструмент для разработчиков компании.
+- Инструмент должен позволять разработчикам делиться между собой:
+  - настройками workflow;
+  - шаблонами и best practices выполнения задач.
+- Обязательно собираем метрики по run (время/стоимость/успешность), чтобы распространять лучшие практики на основе данных.
+- Обязательно оптимизируем расход токенов через stage-based стратегию моделей:
+  - разные модели для разных этапов;
+  - тяжелые модели только там, где это реально нужно.
 
 ## React стандарты (обязательно для UI-модулей)
 

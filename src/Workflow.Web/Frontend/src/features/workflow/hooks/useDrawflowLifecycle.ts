@@ -1,5 +1,6 @@
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import Drawflow from "drawflow";
+import { removeConnection } from "../lib/drawflowGraphAdapter";
 import type {
   DrawflowConnectionShape,
   GraphValidationPayload,
@@ -25,6 +26,7 @@ interface UseDrawflowLifecycleProps {
   restoreGraphFromLocalStorage: () => void;
   refreshEmptyState: () => void;
   validateCurrentGraph: () => GraphValidationPayload | null;
+  validateConnection: (connection: DrawflowConnectionShape) => string[];
   onStatus: (text: string, level: StatusLevel) => void;
 }
 
@@ -42,30 +44,70 @@ export function useDrawflowLifecycle({
   restoreGraphFromLocalStorage,
   refreshEmptyState,
   validateCurrentGraph,
+  validateConnection,
   onStatus
 }: UseDrawflowLifecycleProps) {
+  const handlersRef = useRef({
+    syncInspector,
+    clearInspector,
+    renderConnectionsForNode,
+    getConnectionKey,
+    restoreGraphFromLocalStorage,
+    refreshEmptyState,
+    validateCurrentGraph,
+    validateConnection,
+    onStatus
+  });
+
   useEffect(() => {
-    if (!editorContainerRef.current) {
+    handlersRef.current = {
+      syncInspector,
+      clearInspector,
+      renderConnectionsForNode,
+      getConnectionKey,
+      restoreGraphFromLocalStorage,
+      refreshEmptyState,
+      validateCurrentGraph,
+      validateConnection,
+      onStatus
+    };
+  }, [
+    syncInspector,
+    clearInspector,
+    renderConnectionsForNode,
+    getConnectionKey,
+    restoreGraphFromLocalStorage,
+    refreshEmptyState,
+    validateCurrentGraph,
+    validateConnection,
+    onStatus
+  ]);
+
+  useEffect(() => {
+    const editorContainer = editorContainerRef.current;
+    if (!editorContainer || editorRef.current) {
       return undefined;
     }
 
-    const editor = new Drawflow(editorContainerRef.current);
+    const editor = new Drawflow(editorContainer);
     editor.reroute = true;
     editor.start();
+    const editorWithZoomReset = editor as Drawflow & { zoom_reset?: () => void };
+    editorWithZoomReset.zoom_reset?.();
     editorRef.current = editor;
     setIsEditorReady(true);
 
     editor.on("nodeSelected", (nodeId: unknown) => {
       const id = Number(nodeId);
       setSelectedNodeId(id);
-      syncInspector(id);
-      onStatus(`Selected node ${id}`, "idle");
+      handlersRef.current.syncInspector(id);
+      handlersRef.current.onStatus(`Selected node ${id}`, "idle");
     });
 
     editor.on("nodeUnselected", () => {
       setSelectedNodeId(null);
-      clearInspector();
-      onStatus("Idle", "idle");
+      handlersRef.current.clearInspector();
+      handlersRef.current.onStatus("Idle", "idle");
     });
 
     editor.on("nodeRemoved", (nodeIdRaw: unknown) => {
@@ -80,51 +122,58 @@ export function useDrawflowLifecycle({
 
       if (selectedNodeIdRef.current === nodeId) {
         setSelectedNodeId(null);
-        clearInspector();
+        handlersRef.current.clearInspector();
       }
 
-      refreshEmptyState();
-      validateCurrentGraph();
-      renderConnectionsForNode(selectedNodeIdRef.current);
+      handlersRef.current.refreshEmptyState();
+      handlersRef.current.validateCurrentGraph();
+      handlersRef.current.renderConnectionsForNode(selectedNodeIdRef.current);
     });
 
     editor.on("connectionCreated", (connection: DrawflowConnectionShape) => {
-      connectionIndexRef.current.set(getConnectionKey(connection), connection);
-      renderConnectionsForNode(selectedNodeIdRef.current);
-      validateCurrentGraph();
-      onStatus("Connection created", "active");
-      window.setTimeout(() => onStatus("Idle", "idle"), 600);
+      const connectionErrors = handlersRef.current.validateConnection(connection);
+      if (connectionErrors.length > 0) {
+        removeConnection(editor, connection);
+        connectionIndexRef.current.delete(handlersRef.current.getConnectionKey(connection));
+        handlersRef.current.validateCurrentGraph();
+        handlersRef.current.renderConnectionsForNode(selectedNodeIdRef.current);
+        handlersRef.current.onStatus(connectionErrors[0] ?? "Connection is not allowed", "error");
+        return;
+      }
+
+      connectionIndexRef.current.set(handlersRef.current.getConnectionKey(connection), connection);
+      handlersRef.current.renderConnectionsForNode(selectedNodeIdRef.current);
+      handlersRef.current.validateCurrentGraph();
+      handlersRef.current.onStatus("Connection created", "active");
+      window.setTimeout(() => handlersRef.current.onStatus("Idle", "idle"), 600);
     });
 
     editor.on("connectionRemoved", (connection: DrawflowConnectionShape) => {
-      connectionIndexRef.current.delete(getConnectionKey(connection));
-      renderConnectionsForNode(selectedNodeIdRef.current);
-      validateCurrentGraph();
-      onStatus("Connection removed", "idle");
+      connectionIndexRef.current.delete(handlersRef.current.getConnectionKey(connection));
+      handlersRef.current.renderConnectionsForNode(selectedNodeIdRef.current);
+      handlersRef.current.validateCurrentGraph();
+      handlersRef.current.onStatus("Connection removed", "idle");
     });
 
-    restoreGraphFromLocalStorage();
-    refreshEmptyState();
-    validateCurrentGraph();
+    handlersRef.current.restoreGraphFromLocalStorage();
+    handlersRef.current.refreshEmptyState();
+    handlersRef.current.validateCurrentGraph();
 
     return () => {
-      editorRef.current = null;
+      if (editorRef.current === editor) {
+        editorRef.current = null;
+      }
+      if (editorContainerRef.current) {
+        editorContainerRef.current.innerHTML = "";
+      }
       setIsEditorReady(false);
     };
   }, [
-    clearInspector,
-    connectionIndexRef,
     editorContainerRef,
     editorRef,
-    getConnectionKey,
-    onStatus,
-    refreshEmptyState,
-    renderConnectionsForNode,
-    restoreGraphFromLocalStorage,
+    connectionIndexRef,
     selectedNodeIdRef,
     setIsEditorReady,
-    setSelectedNodeId,
-    syncInspector,
-    validateCurrentGraph
+    setSelectedNodeId
   ]);
 }

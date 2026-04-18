@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type Drawflow from "drawflow";
 import { getErrorMessage } from "../../../shared/lib/errorMessage";
-import { NODE_TEMPLATES } from "../../../shared/config/nodeTemplates";
 import { makeNodeMarkup } from "../../editor/nodeMarkup";
 import type {
   ClipboardNode,
   DrawflowConnectionShape,
   GraphValidationPayload,
+  NodeTemplatesMap,
   StatusLevel,
   WorkflowDefinition
 } from "../../../shared/types/workflow";
@@ -36,18 +36,25 @@ import {
  * Как: оркестрирует drawflow lifecycle, операции графа и состояние инспектора.
  */
 interface UseDrawflowEditorProps {
+  nodeTemplates: NodeTemplatesMap;
   setWorkflowName: (name: string) => void;
   onStatus: (text: string, level: StatusLevel) => void;
   onToast: (message: string) => void;
   onSaveRequestedRef: MutableRefObject<(() => Promise<void>) | (() => void)>;
 }
 
-export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRequestedRef }: UseDrawflowEditorProps) {
+export function useDrawflowEditor({
+  nodeTemplates,
+  setWorkflowName,
+  onStatus,
+  onToast,
+  onSaveRequestedRef
+}: UseDrawflowEditorProps) {
   const storageAdapter = useMemo(() => createWorkflowStorageAdapter(window.localStorage), []);
   const graphService = useMemo(() => createWorkflowGraphService({
-    nodeTemplates: NODE_TEMPLATES,
+    nodeTemplates,
     makeNodeMarkup
-  }), []);
+  }), [nodeTemplates]);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Drawflow | null>(null);
   const connectionIndexRef = useRef<Map<string, DrawflowConnectionShape>>(new Map());
@@ -110,6 +117,15 @@ export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRe
     const validationPayload = graphService.buildValidationPayload(graphJson);
     setValidationErrors(validationPayload.validationResult.errors);
     return validationPayload;
+  }, [graphService]);
+
+  const validateConnection = useCallback((connection: DrawflowConnectionShape): string[] => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return [];
+    }
+
+    return graphService.validateConnection(exportGraph(editor), connection).errors;
   }, [graphService]);
 
   const importWorkflowDefinition = useCallback((definition: WorkflowDefinition) => {
@@ -176,7 +192,7 @@ export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRe
       return;
     }
 
-    const template = NODE_TEMPLATES[type];
+    const template = nodeTemplates[type];
     if (!template) {
       onToast(`Unknown node type: ${type}`);
       return;
@@ -199,7 +215,7 @@ export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRe
     }
     validateCurrentGraph();
     onToast(`${template.label} added`);
-  }, [onToast, refreshEmptyState, setSelectedNodeId, syncInspector, validateCurrentGraph]);
+  }, [nodeTemplates, onToast, refreshEmptyState, setSelectedNodeId, syncInspector, validateCurrentGraph]);
 
   const removeNode = useCallback((nodeId: number | null) => {
     const editor = editorRef.current;
@@ -279,6 +295,7 @@ export function useDrawflowEditor({ setWorkflowName, onStatus, onToast, onSaveRe
     restoreGraphFromLocalStorage,
     refreshEmptyState,
     validateCurrentGraph,
+    validateConnection,
     onStatus
   });
 

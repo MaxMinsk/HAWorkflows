@@ -2,6 +2,6 @@ src/Workflow.Web/Frontend/node_modules/
 src/Workflow.Web/Frontend/.vite/
 src/**/bin/
 src/**/obj/
-src/Workflow.Api/data/*.db
+src/Workflow.Api/data/
 .DS_Store
 Notes~/

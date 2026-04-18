@@ -1,4 +1,5 @@
 using Workflow.Engine.Definitions;
+using Workflow.Engine.Runtime.Nodes;
 
 namespace Workflow.Engine.Validation;
 
@@ -9,13 +10,40 @@ namespace Workflow.Engine.Validation;
 /// </summary>
 public sealed class WorkflowDefinitionValidator
 {
-    private static readonly HashSet<string> SupportedNodeTypes =
-    [
-        "input",
-        "transform",
-        "log",
-        "output"
-    ];
+    private readonly IReadOnlyDictionary<string, WorkflowNodeDescriptor> _nodeDescriptorsByType;
+
+    public WorkflowDefinitionValidator()
+        : this(new[]
+        {
+            new WorkflowNodeDescriptor("input", "Input", "Start signal", 0, 1, false),
+            new WorkflowNodeDescriptor("transform", "Transform", "Deterministic mapping", 1, 1, false),
+            new WorkflowNodeDescriptor("log", "Log", "Write execution log", 1, 1, false),
+            new WorkflowNodeDescriptor("output", "Output", "Final result", 1, 0, false)
+        })
+    {
+    }
+
+    public WorkflowDefinitionValidator(IEnumerable<string> supportedNodeTypes)
+        : this(supportedNodeTypes.Select(nodeType => new WorkflowNodeDescriptor(
+            Type: nodeType,
+            Label: nodeType,
+            Description: string.Empty,
+            Inputs: 1,
+            Outputs: 1,
+            IsLocal: false)))
+    {
+    }
+
+    public WorkflowDefinitionValidator(IEnumerable<WorkflowNodeDescriptor> nodeDescriptors)
+    {
+        ArgumentNullException.ThrowIfNull(nodeDescriptors);
+        _nodeDescriptorsByType = nodeDescriptors
+            .GroupBy(descriptor => descriptor.Type, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First(),
+                StringComparer.Ordinal);
+    }
 
     public WorkflowDefinitionValidationResult Validate(WorkflowDefinition definition)
     {
@@ -24,6 +52,7 @@ public sealed class WorkflowDefinitionValidator
         var errors = new List<string>();
         var nodeIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         var nodeIds = new HashSet<string>(StringComparer.Ordinal);
+        var nodeDescriptorsById = new Dictionary<string, WorkflowNodeDescriptor>(StringComparer.Ordinal);
 
         if (!string.Equals(definition.SchemaVersion, "1.0", StringComparison.Ordinal))
         {
@@ -58,9 +87,13 @@ public sealed class WorkflowDefinitionValidator
                 errors.Add($"{prefix}.name must be a non-empty string.");
             }
 
-            if (!SupportedNodeTypes.Contains(node.Type))
+            if (!_nodeDescriptorsByType.TryGetValue(node.Type, out var nodeDescriptor))
             {
                 errors.Add($"{prefix}.type '{node.Type}' is not supported.");
+            }
+            else
+            {
+                nodeDescriptorsById[node.Id] = nodeDescriptor;
             }
         }
 
@@ -96,6 +129,8 @@ public sealed class WorkflowDefinitionValidator
             {
                 errors.Add($"{prefix}.targetNodeId '{edge.TargetNodeId}' does not exist in nodes.");
             }
+
+            ValidatePortCompatibility(edge, prefix, nodeDescriptorsById, errors);
 
             if (string.Equals(edge.SourceNodeId, edge.TargetNodeId, StringComparison.Ordinal))
             {
@@ -155,5 +190,47 @@ public sealed class WorkflowDefinitionValidator
 
         return new WorkflowDefinitionValidationResult(Array.Empty<string>(), topologicalOrder);
     }
-}
 
+    private static void ValidatePortCompatibility(
+        WorkflowEdgeDefinition edge,
+        string prefix,
+        IReadOnlyDictionary<string, WorkflowNodeDescriptor> nodeDescriptorsById,
+        List<string> errors)
+    {
+        if (string.IsNullOrWhiteSpace(edge.SourcePort) || string.IsNullOrWhiteSpace(edge.TargetPort))
+        {
+            return;
+        }
+
+        if (!nodeDescriptorsById.TryGetValue(edge.SourceNodeId, out var sourceDescriptor) ||
+            !nodeDescriptorsById.TryGetValue(edge.TargetNodeId, out var targetDescriptor))
+        {
+            return;
+        }
+
+        var sourcePort = sourceDescriptor
+            .GetOutputPorts()
+            .FirstOrDefault(port => string.Equals(port.Id, edge.SourcePort, StringComparison.Ordinal));
+        if (sourcePort is null)
+        {
+            errors.Add($"{prefix}.sourcePort '{edge.SourcePort}' does not exist on node '{edge.SourceNodeId}' output ports.");
+            return;
+        }
+
+        var targetPort = targetDescriptor
+            .GetInputPorts()
+            .FirstOrDefault(port => string.Equals(port.Id, edge.TargetPort, StringComparison.Ordinal));
+        if (targetPort is null)
+        {
+            errors.Add($"{prefix}.targetPort '{edge.TargetPort}' does not exist on node '{edge.TargetNodeId}' input ports.");
+            return;
+        }
+
+        if (!string.Equals(sourcePort.Channel, targetPort.Channel, StringComparison.Ordinal))
+        {
+            errors.Add(
+                $"{prefix} connects incompatible channels: source {edge.SourceNodeId}.{sourcePort.Id} " +
+                $"({sourcePort.Channel}) -> target {edge.TargetNodeId}.{targetPort.Id} ({targetPort.Channel}).");
+        }
+    }
+}

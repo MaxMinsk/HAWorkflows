@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NODE_TEMPLATES } from "../../../shared/config/nodeTemplates";
 import { createWorkflowApiClient } from "../../../shared/api/workflowApiClient";
-import type { WorkflowBuilderViewModel } from "../../../shared/types/workflow";
+import type { NodeTemplatesMap, WorkflowBuilderViewModel } from "../../../shared/types/workflow";
 import { useDrawflowEditor } from "./useDrawflowEditor";
 import { useWorkflowStorage } from "./useWorkflowStorage";
 import { useRunPolling } from "./useRunPolling";
 import { useUiFeedback } from "./useUiFeedback";
 import { useRunActions } from "./useRunActions";
+import { useMcpSettingsDialog } from "../../settings/useMcpSettingsDialog";
 
 /**
  * Что: orchestration-хук для Workflow Builder.
@@ -15,11 +15,15 @@ import { useRunActions } from "./useRunActions";
  */
 export function useWorkflowBuilder(): WorkflowBuilderViewModel {
   const apiClient = useMemo(() => createWorkflowApiClient(window.localStorage), []);
+  const [nodeTemplates, setNodeTemplates] = useState<NodeTemplatesMap>({});
+  const [isNodeCatalogReady, setIsNodeCatalogReady] = useState(false);
   const [workflowName, setWorkflowName] = useState("Draft Workflow");
   const onSaveRequestedRef = useRef<(() => Promise<void>) | (() => void)>(() => {});
   const ui = useUiFeedback();
+  const mcpSettings = useMcpSettingsDialog(apiClient);
 
   const editor = useDrawflowEditor({
+    nodeTemplates,
     setWorkflowName,
     onStatus: ui.setStatusMessage,
     onToast: ui.showToast,
@@ -58,11 +62,43 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
   }, [storage.onSave]);
 
   useEffect(() => {
-    if (editor.isEditorReady) {
+    let isActive = true;
+
+    apiClient
+      .getNodeTemplates()
+      .then((templates) => {
+        if (!isActive) {
+          return;
+        }
+
+        if (Object.keys(templates).length === 0) {
+          throw new Error("Node catalog is empty.");
+        }
+
+        setNodeTemplates(templates);
+        setIsNodeCatalogReady(true);
+        ui.setStatusMessage(`Node catalog loaded (${Object.keys(templates).length})`, "idle");
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+
+        ui.setStatusMessage("Node catalog load failed", "error");
+        ui.showToast("Node catalog is unavailable. Check backend /node-types.");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [apiClient, ui.setStatusMessage, ui.showToast]);
+
+  useEffect(() => {
+    if (editor.isEditorReady && isNodeCatalogReady) {
       storage.initializeStorage();
     }
-  }, [editor.isEditorReady, storage.initializeStorage]);
-  const nodeTypes = Object.keys(NODE_TEMPLATES);
+  }, [editor.isEditorReady, isNodeCatalogReady, storage.initializeStorage]);
+  const nodeTypes = Object.keys(nodeTemplates);
 
   return {
     status: ui.status,
@@ -78,8 +114,10 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
     validationErrors: editor.validationErrors,
     runData: runs.runData,
     nodeTypes,
+    nodeTemplates,
     editorContainerRef: editor.editorContainerRef,
     setWorkflowName,
+    mcpSettings,
     updateInspectorField: editor.setInspectorField,
     addNode: editor.addNode,
     removeSelectedNode: editor.removeSelectedNode,

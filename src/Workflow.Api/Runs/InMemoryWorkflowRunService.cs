@@ -242,6 +242,7 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
                 command.Definition,
                 new WorkflowRunRequest
                 {
+                    RunId = runId,
                     InputJson = command.InputJson
                 },
                 async (nodeUpdate, _) =>
@@ -335,6 +336,14 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
         target.CompletedAtUtc = nodeUpdate.CompletedAtUtc;
         target.Error = nodeUpdate.Error;
         target.OutputJson = nodeUpdate.OutputJson;
+        target.RoutingStage = nodeUpdate.RoutingStage;
+        target.SelectedTier = nodeUpdate.SelectedTier;
+        target.SelectedModel = nodeUpdate.SelectedModel;
+        target.ThinkingMode = nodeUpdate.ThinkingMode;
+        target.RouteReason = nodeUpdate.RouteReason;
+        target.RoutingConfidence = nodeUpdate.RoutingConfidence;
+        target.RoutingRetryCount = nodeUpdate.RoutingRetryCount;
+        target.RoutingBudgetRemaining = nodeUpdate.RoutingBudgetRemaining;
     }
 
     private static WorkflowRunSnapshot ToSnapshot(
@@ -383,7 +392,15 @@ public sealed class InMemoryWorkflowRunService : IWorkflowRunService
             StartedAtUtc = source.StartedAtUtc,
             CompletedAtUtc = source.CompletedAtUtc,
             Error = source.Error,
-            OutputJson = source.OutputJson
+            OutputJson = source.OutputJson,
+            RoutingStage = source.RoutingStage,
+            SelectedTier = source.SelectedTier,
+            SelectedModel = source.SelectedModel,
+            ThinkingMode = source.ThinkingMode,
+            RouteReason = source.RouteReason,
+            RoutingConfidence = source.RoutingConfidence,
+            RoutingRetryCount = source.RoutingRetryCount,
+            RoutingBudgetRemaining = source.RoutingBudgetRemaining
         };
     }
 

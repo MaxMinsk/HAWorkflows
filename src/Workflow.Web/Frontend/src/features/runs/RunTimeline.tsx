@@ -41,6 +41,11 @@ export function RunTimeline({ run, nodes }: RunTimelineProps) {
                 <div className="timeline-item-meta">
                   start {formatUtcTime(node.startedAtUtc)} · end {formatUtcTime(node.completedAtUtc)}
                 </div>
+                {node.routeReason && (
+                  <div className="timeline-item-meta">
+                    route {node.routeReason} · tier {node.selectedTier || "n/a"} · model {node.selectedModel || "n/a"}
+                  </div>
+                )}
                 {node.error && <div className="timeline-item-meta">error: {node.error}</div>}
               </li>
             );

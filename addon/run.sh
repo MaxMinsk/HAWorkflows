@@ -6,13 +6,28 @@ WEB_PORT=8099
 API_BASE_URL="http://127.0.0.1:${API_PORT}"
 
 api_database_path="$(bashio::config 'api_database_path')"
+workspace_path="$(bashio::config 'workspace_path')"
+mcp_config_path="$(bashio::config 'mcp_config_path')"
 suppression_window_seconds="$(bashio::config 'external_signal_suppression_window_seconds')"
+enable_local_node_packs="$(bashio::config 'enable_local_node_packs')"
 
 mkdir -p "$(dirname "${api_database_path}")"
+mkdir -p "${workspace_path}"
+mkdir -p "$(dirname "${mcp_config_path}")"
+
+export WorkflowNodes__Profile="Release"
+export WorkflowNodes__IncludeLocalNodes="${enable_local_node_packs}"
+export WorkflowNodes__EnabledPacks__0="core"
+unset WorkflowNodes__EnabledPacks__1 || true
+if [[ "${enable_local_node_packs}" == "true" ]]; then
+  export WorkflowNodes__EnabledPacks__1="local_development"
+fi
 
 bashio::log.info "Starting Workflow.Api on :${API_PORT}"
 ASPNETCORE_URLS="http://0.0.0.0:${API_PORT}" \
 WorkflowStorage__DatabasePath="${api_database_path}" \
+WorkflowArtifacts__WorkspacePath="${workspace_path}" \
+WorkflowMcp__ConfigPath="${mcp_config_path}" \
 WorkflowRuns__ExternalSignalSuppressionWindowSeconds="${suppression_window_seconds}" \
 /opt/workflow/api/Workflow.Api &
 api_pid=$!

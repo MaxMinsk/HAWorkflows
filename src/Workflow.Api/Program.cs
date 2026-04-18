@@ -1,7 +1,16 @@
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Workflow.Api.Settings;
 using Workflow.Api.Runs;
 using Workflow.Engine.Definitions;
 using Workflow.Engine.Runtime;
+using Workflow.Engine.Runtime.Agents;
+using Workflow.Engine.Runtime.Artifacts;
+using Workflow.Engine.Runtime.Mcp;
+using Workflow.Engine.Runtime.Nodes;
+using Workflow.Engine.Runtime.Routing;
+using Workflow.Engine.Validation;
 using Workflow.Persistence.WorkflowDefinitions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +25,26 @@ if (!Path.IsPathRooted(workflowDatabasePath))
 {
     workflowDatabasePath = Path.GetFullPath(
         Path.Combine(builder.Environment.ContentRootPath, workflowDatabasePath));
+}
+
+var configuredWorkspacePath = builder.Configuration["WorkflowArtifacts:WorkspacePath"];
+var workflowWorkspacePath = string.IsNullOrWhiteSpace(configuredWorkspacePath)
+    ? Path.Combine(builder.Environment.ContentRootPath, "data", "workspace")
+    : configuredWorkspacePath!;
+if (!Path.IsPathRooted(workflowWorkspacePath))
+{
+    workflowWorkspacePath = Path.GetFullPath(
+        Path.Combine(builder.Environment.ContentRootPath, workflowWorkspacePath));
+}
+
+var configuredMcpConfigPath = builder.Configuration["WorkflowMcp:ConfigPath"];
+var mcpConfigPath = string.IsNullOrWhiteSpace(configuredMcpConfigPath)
+    ? Path.Combine(builder.Environment.ContentRootPath, "data", "mcp.json")
+    : configuredMcpConfigPath!;
+if (!Path.IsPathRooted(mcpConfigPath))
+{
+    mcpConfigPath = Path.GetFullPath(
+        Path.Combine(builder.Environment.ContentRootPath, mcpConfigPath));
 }
 
 builder.Services.AddCors(options =>
@@ -35,7 +64,39 @@ builder.Services.AddSingleton<IWorkflowDefinitionRepository>(serviceProvider =>
     new SqliteWorkflowDefinitionRepository(
         workflowDatabasePath,
         serviceProvider.GetRequiredService<ILogger<SqliteWorkflowDefinitionRepository>>()));
+builder.Services.AddSingleton<IWorkflowArtifactStore>(_ => new FileSystemWorkflowArtifactStore(workflowWorkspacePath));
 builder.Services.Configure<WorkflowRunServiceOptions>(builder.Configuration.GetSection("WorkflowRuns"));
+var agentExecutorOptions = builder.Configuration.GetSection("WorkflowAgents").Get<AgentExecutorOptions>()
+                           ?? new AgentExecutorOptions();
+builder.Services.AddSingleton(agentExecutorOptions);
+builder.Services.AddSingleton<IAgentExecutor, EchoAgentExecutor>();
+builder.Services.AddSingleton<IAgentExecutorCatalog, AgentExecutorCatalog>();
+var mcpToolInvokerOptions = builder.Configuration.GetSection("WorkflowMcp").Get<McpToolInvokerOptions>()
+                            ?? new McpToolInvokerOptions();
+builder.Services.AddSingleton(serviceProvider => new McpSettingsStore(
+    mcpConfigPath,
+    mcpToolInvokerOptions,
+    serviceProvider.GetRequiredService<ILogger<McpSettingsStore>>()));
+builder.Services.AddSingleton<IMcpToolProfileSource>(serviceProvider =>
+    serviceProvider.GetRequiredService<McpSettingsStore>());
+builder.Services.AddSingleton(mcpToolInvokerOptions);
+builder.Services.AddSingleton<IMcpToolInvoker, MockMcpToolInvoker>();
+builder.Services.AddSingleton<IMcpToolInvoker, StreamableHttpMcpToolInvoker>();
+builder.Services.AddSingleton<IMcpToolInvokerCatalog, McpToolInvokerCatalog>();
+var modelRoutingOptions = builder.Configuration.GetSection("WorkflowModelRouting").Get<WorkflowModelRoutingOptions>()
+                          ?? new WorkflowModelRoutingOptions();
+builder.Services.AddSingleton(modelRoutingOptions);
+builder.Services.AddSingleton<IWorkflowModelRoutingPolicy, WorkflowModelRoutingPolicy>();
+var workflowNodeCatalogOptions = builder.Configuration.GetSection("WorkflowNodes").Get<WorkflowNodeCatalogOptions>()
+                                 ?? new WorkflowNodeCatalogOptions();
+builder.Services.AddSingleton(workflowNodeCatalogOptions);
+foreach (var executorType in DiscoverWorkflowNodeExecutorTypes())
+{
+    builder.Services.AddSingleton(typeof(IWorkflowNodeExecutor), executorType);
+}
+builder.Services.AddSingleton<IWorkflowNodeCatalog, WorkflowNodeCatalog>();
+builder.Services.AddSingleton(serviceProvider => new WorkflowDefinitionValidator(
+    serviceProvider.GetRequiredService<IWorkflowNodeCatalog>().GetDescriptors()));
 builder.Services.AddSingleton<WorkflowRunMetrics>();
 builder.Services.AddSingleton<IWorkflowRuntime, DeterministicWorkflowRuntime>();
 builder.Services.AddSingleton<IWorkflowRunService, InMemoryWorkflowRunService>();
@@ -69,6 +130,8 @@ app.MapGet("/", () => Results.Ok(new
     name = "Workflow.Api",
     status = "ok",
     storage = workflowDatabasePath,
+    workspace = workflowWorkspacePath,
+    mcpConfig = mcpConfigPath,
 }));
 
 app.MapGet("/health", () => Results.Ok(new
@@ -78,6 +141,120 @@ app.MapGet("/health", () => Results.Ok(new
 }));
 
 app.MapGet("/metrics", (WorkflowRunMetrics metrics) => Results.Ok(metrics.GetSnapshot()));
+
+app.MapGet(
+    "/settings/mcp",
+    async Task<IResult> (
+        McpSettingsStore settingsStore,
+        CancellationToken cancellationToken) =>
+    {
+        var settings = await settingsStore.ReadAsync(cancellationToken);
+        return Results.Ok(ToMcpSettingsResponse(settings));
+    });
+
+app.MapPut(
+    "/settings/mcp",
+    async Task<IResult> (
+        SaveMcpSettingsRequest request,
+        McpSettingsStore settingsStore,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.Settings is null)
+        {
+            return Results.BadRequest(new { error = "settings is required." });
+        }
+
+        var settings = await settingsStore.SaveAsync(request.Settings, cancellationToken);
+        return Results.Ok(ToMcpSettingsResponse(settings));
+    });
+
+app.MapPost(
+    "/settings/mcp/test",
+    async Task<IResult> (
+        TestMcpProfileRequest request,
+        McpSettingsStore settingsStore,
+        IMcpToolInvokerCatalog mcpToolCatalog,
+        CancellationToken cancellationToken) =>
+    {
+        var profile = string.IsNullOrWhiteSpace(request.ServerProfile)
+            ? settingsStore.GetSnapshot().DefaultProfile
+            : request.ServerProfile.Trim();
+        var timeoutSeconds = request.TimeoutSeconds is > 0
+            ? Math.Min(request.TimeoutSeconds.Value, 600)
+            : 30;
+
+        try
+        {
+            var tools = await mcpToolCatalog.ListToolsAsync(new McpToolListRequest
+            {
+                ServerProfile = profile,
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds)
+            }, cancellationToken);
+
+            return Results.Ok(new TestMcpProfileResponse(
+                Profile: tools.ServerProfile,
+                ServerType: tools.ServerType,
+                ToolCount: tools.Tools.Count,
+                Tools: tools.Tools,
+                Metadata: tools.Metadata));
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or TimeoutException)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    });
+
+app.MapGet(
+    "/node-types",
+    (IWorkflowNodeCatalog nodeCatalog) =>
+    {
+        var nodeTypes = nodeCatalog.GetDescriptors()
+            .Select(descriptor => new NodeTypeResponse(
+                Type: descriptor.Type,
+                Label: descriptor.Label,
+                Description: descriptor.Description,
+                Inputs: descriptor.Inputs,
+                Outputs: descriptor.Outputs,
+                Pack: descriptor.Pack,
+                Source: descriptor.Source,
+                IsLocal: descriptor.IsLocal,
+                UsesModel: descriptor.UsesModel,
+                InputPorts: descriptor.GetInputPorts()
+                    .Select(port => new NodeTypePortResponse(
+                        Id: port.Id,
+                        Label: port.Label,
+                        Channel: port.Channel,
+                        Required: port.Required,
+                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>()))
+                    .ToArray(),
+                OutputPorts: descriptor.GetOutputPorts()
+                    .Select(port => new NodeTypePortResponse(
+                        Id: port.Id,
+                        Label: port.Label,
+                        Channel: port.Channel,
+                        Required: port.Required,
+                        AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>()))
+                    .ToArray(),
+                ConfigFields: (descriptor.ConfigFields ?? Array.Empty<WorkflowNodeConfigFieldDescriptor>())
+                    .Select(field => new NodeTypeConfigFieldResponse(
+                        Key: field.Key,
+                        Label: field.Label,
+                        FieldType: field.FieldType,
+                        Description: field.Description,
+                        Required: field.Required,
+                        Multiline: field.Multiline,
+                        Placeholder: field.Placeholder,
+                        DefaultValue: field.DefaultValue,
+                        Options: (field.Options ?? Array.Empty<WorkflowNodeConfigFieldOptionDescriptor>())
+                            .Select(option => new NodeTypeConfigFieldOptionResponse(
+                                Value: option.Value,
+                                Label: option.Label))
+                            .ToArray()))
+                    .ToArray()))
+            .ToArray();
+
+        return Results.Ok(nodeTypes);
+    });
 
 app.MapGet(
     "/workflows",
@@ -119,6 +296,7 @@ app.MapPost(
     async Task<IResult> (
         UpsertWorkflowRequest request,
         IWorkflowDefinitionRepository repository,
+        WorkflowDefinitionValidator validator,
         CancellationToken cancellationToken) =>
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -129,6 +307,18 @@ app.MapPost(
         if (request.Definition.ValueKind != JsonValueKind.Object)
         {
             return Results.BadRequest(new { error = "definition must be a JSON object." });
+        }
+
+        var definition = DeserializeWorkflowDefinition(request.Definition, out var deserializeError);
+        if (definition is null)
+        {
+            return Results.BadRequest(new { error = deserializeError });
+        }
+
+        var validationResult = validator.Validate(definition);
+        if (!validationResult.IsValid)
+        {
+            return Results.BadRequest(new { error = string.Join(" ", validationResult.Errors) });
         }
 
         var savedWorkflow = await repository.SaveAsync(
@@ -402,6 +592,41 @@ app.MapGet(
         return Results.Ok(nodeResults);
     });
 
+app.MapGet(
+    "/runs/{runId}/artifacts",
+    (string runId, IWorkflowArtifactStore artifactStore) =>
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return Results.BadRequest(new { error = "runId is required." });
+        }
+
+        return Results.Ok(artifactStore.ListRunArtifacts(runId.Trim()));
+    });
+
+app.MapGet(
+    "/runs/{runId}/artifacts/{artifactId}",
+    (string runId, string artifactId, IWorkflowArtifactStore artifactStore) =>
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return Results.BadRequest(new { error = "runId is required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(artifactId))
+        {
+            return Results.BadRequest(new { error = "artifactId is required." });
+        }
+
+        var artifact = artifactStore.TryReadArtifact(runId.Trim(), artifactId.Trim());
+        if (artifact is null)
+        {
+            return Results.NotFound(new { error = $"Artifact '{artifactId}' was not found for run '{runId}'." });
+        }
+
+        return Results.Ok(artifact);
+    });
+
 app.Run();
 
 static WorkflowResponse ToWorkflowResponse(StoredWorkflowDefinition storedWorkflow)
@@ -471,6 +696,14 @@ static WorkflowRunResponse ToWorkflowRunResponse(WorkflowRunSnapshot snapshot)
         Logs: snapshot.Logs);
 }
 
+static McpSettingsResponse ToMcpSettingsResponse(McpSettingsReadResult result)
+{
+    return new McpSettingsResponse(
+        ConfigPath: result.ConfigPath,
+        Exists: result.Exists,
+        Settings: result.Settings);
+}
+
 static string BuildExternalSignalEnvelope(
     string source,
     string idempotencyKey,
@@ -494,6 +727,33 @@ static string BuildExternalSignalEnvelope(
     });
 }
 
+static IReadOnlyList<Type> DiscoverWorkflowNodeExecutorTypes()
+{
+    var executorInterface = typeof(IWorkflowNodeExecutor);
+    return typeof(Program).Assembly
+        .GetReferencedAssemblies()
+        .Select(Assembly.Load)
+        .Prepend(typeof(IWorkflowNodeExecutor).Assembly)
+        .DistinctBy(assembly => assembly.FullName)
+        .SelectMany(SafeGetTypes)
+        .Where(type => type is { IsAbstract: false, IsInterface: false })
+        .Where(type => executorInterface.IsAssignableFrom(type))
+        .OrderBy(type => type.FullName, StringComparer.Ordinal)
+        .ToArray();
+}
+
+static IReadOnlyList<Type> SafeGetTypes(Assembly assembly)
+{
+    try
+    {
+        return assembly.GetTypes();
+    }
+    catch (ReflectionTypeLoadException exception)
+    {
+        return exception.Types.Where(type => type is not null).Cast<Type>().ToArray();
+    }
+}
+
 public sealed record WorkflowSummaryResponse(
     string WorkflowId,
     string Name,
@@ -506,6 +766,42 @@ public sealed record WorkflowResponse(
     int Version,
     JsonElement Definition,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record NodeTypeResponse(
+    string Type,
+    string Label,
+    string Description,
+    int Inputs,
+    int Outputs,
+    string Pack,
+    string Source,
+    bool IsLocal,
+    bool UsesModel,
+    IReadOnlyList<NodeTypePortResponse> InputPorts,
+    IReadOnlyList<NodeTypePortResponse> OutputPorts,
+    IReadOnlyList<NodeTypeConfigFieldResponse> ConfigFields);
+
+public sealed record NodeTypePortResponse(
+    string Id,
+    string Label,
+    string Channel,
+    bool Required,
+    IReadOnlyList<string> AcceptedKinds);
+
+public sealed record NodeTypeConfigFieldResponse(
+    string Key,
+    string Label,
+    string FieldType,
+    string? Description,
+    bool Required,
+    bool Multiline,
+    string? Placeholder,
+    string? DefaultValue,
+    IReadOnlyList<NodeTypeConfigFieldOptionResponse> Options);
+
+public sealed record NodeTypeConfigFieldOptionResponse(
+    string Value,
+    string Label);
 
 public sealed class UpsertWorkflowRequest
 {
@@ -533,6 +829,29 @@ public sealed class CreateSignalRunRequest
     public string? IdempotencyKey { get; init; }
     public JsonElement? Payload { get; init; }
 }
+
+public sealed class SaveMcpSettingsRequest
+{
+    public McpToolInvokerOptions? Settings { get; init; }
+}
+
+public sealed class TestMcpProfileRequest
+{
+    public string? ServerProfile { get; init; }
+    public int? TimeoutSeconds { get; init; }
+}
+
+public sealed record McpSettingsResponse(
+    string ConfigPath,
+    bool Exists,
+    McpToolInvokerOptions Settings);
+
+public sealed record TestMcpProfileResponse(
+    string Profile,
+    string ServerType,
+    int ToolCount,
+    IReadOnlyList<McpToolDescriptor> Tools,
+    JsonObject Metadata);
 
 public sealed record WorkflowRunResponse(
     string RunId,

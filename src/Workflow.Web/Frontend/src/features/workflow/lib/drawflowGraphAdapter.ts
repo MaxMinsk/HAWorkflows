@@ -76,8 +76,24 @@ export function addNodeToCanvas(editor: Drawflow, options: AddNodeToCanvasOption
   const fallbackRect = { width: 640, height: 380 };
   const safeRect = rect ?? fallbackRect;
 
-  const posX = typeof x === "number" ? x : Math.round(safeRect.width / 2 - 90 + (Math.random() * 30 - 15));
-  const posY = typeof y === "number" ? y : Math.round(safeRect.height / 2 - 30 + (Math.random() * 30 - 15));
+  const editorWithViewport = editor as Drawflow & {
+    zoom?: number;
+    canvas_x?: number;
+    canvas_y?: number;
+  };
+  const zoom = Number.isFinite(editorWithViewport.zoom) && (editorWithViewport.zoom ?? 0) > 0
+    ? (editorWithViewport.zoom as number)
+    : 1;
+  const canvasX = Number.isFinite(editorWithViewport.canvas_x) ? (editorWithViewport.canvas_x as number) : 0;
+  const canvasY = Number.isFinite(editorWithViewport.canvas_y) ? (editorWithViewport.canvas_y as number) : 0;
+
+  const viewportCenterX = typeof x === "number" ? x : safeRect.width / 2;
+  const viewportCenterY = typeof y === "number" ? y : safeRect.height / 2;
+  const randomJitterX = Math.random() * 30 - 15;
+  const randomJitterY = Math.random() * 30 - 15;
+
+  const posX = Math.round((viewportCenterX - canvasX) / zoom - 90 + randomJitterX);
+  const posY = Math.round((viewportCenterY - canvasY) / zoom - 30 + randomJitterY);
   const defaultName = `${template.label} Node`;
 
   return editor.addNode(

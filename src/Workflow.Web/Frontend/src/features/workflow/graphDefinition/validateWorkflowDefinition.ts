@@ -1,13 +1,20 @@
-import type { ValidationResult, WorkflowDefinition, WorkflowEdge, WorkflowNode } from "../../../shared/types/workflow";
+import type {
+  NodeTemplate,
+  NodeTemplatePort,
+  NodeTemplatesMap,
+  ValidationResult,
+  WorkflowDefinition,
+  WorkflowEdge,
+  WorkflowNode
+} from "../../../shared/types/workflow";
 
 /**
  * Что: структурная и графовая валидация workflow definition.
  * Зачем: гарантировать корректный payload перед сохранением/запуском.
  * Как: проверяет schema, типы, ссылки и ацикличность DAG.
  */
-export function validateWorkflowDefinition(definition: WorkflowDefinition, supportedNodeTypes: string[]): ValidationResult {
+export function validateWorkflowDefinition(definition: WorkflowDefinition, nodeTemplates: NodeTemplatesMap): ValidationResult {
   const errors: string[] = [];
-  const allowedNodeTypes = new Set(supportedNodeTypes);
 
   if (definition?.schemaVersion !== "1.0") {
     errors.push("schemaVersion must be '1.0'.");
@@ -23,8 +30,8 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, suppo
     return { isValid: false, errors };
   }
 
-  const nodeIds = validateNodes(definition.nodes, allowedNodeTypes, errors);
-  validateEdges(definition.edges, nodeIds, errors);
+  const { nodeIds, nodeTemplatesById } = validateNodes(definition.nodes, nodeTemplates, errors);
+  validateEdges(definition.edges, nodeIds, nodeTemplatesById, errors);
 
   return {
     isValid: errors.length === 0,
@@ -32,8 +39,18 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, suppo
   };
 }
 
-function validateNodes(nodes: WorkflowNode[], allowedNodeTypes: Set<string>, errors: string[]): Set<string> {
+interface NodeValidationContext {
+  nodeIds: Set<string>;
+  nodeTemplatesById: Map<string, NodeTemplate>;
+}
+
+function validateNodes(
+  nodes: WorkflowNode[],
+  nodeTemplates: NodeTemplatesMap,
+  errors: string[]
+): NodeValidationContext {
   const nodeIds = new Set<string>();
+  const nodeTemplatesById = new Map<string, NodeTemplate>();
 
   nodes.forEach((node, index) => {
     const prefix = `nodes[${index}]`;
@@ -50,8 +67,10 @@ function validateNodes(nodes: WorkflowNode[], allowedNodeTypes: Set<string>, err
       nodeIds.add(node.id);
     }
 
-    if (typeof node.type !== "string" || !allowedNodeTypes.has(node.type)) {
+    if (typeof node.type !== "string" || !nodeTemplates[node.type]) {
       errors.push(`${prefix}.type '${node.type}' is not supported.`);
+    } else if (typeof node.id === "string" && node.id.trim() !== "") {
+      nodeTemplatesById.set(node.id, nodeTemplates[node.type]);
     }
 
     if (typeof node.name !== "string" || node.name.trim() === "") {
@@ -67,10 +86,15 @@ function validateNodes(nodes: WorkflowNode[], allowedNodeTypes: Set<string>, err
     }
   });
 
-  return nodeIds;
+  return { nodeIds, nodeTemplatesById };
 }
 
-function validateEdges(edges: WorkflowEdge[], nodeIds: Set<string>, errors: string[]): void {
+function validateEdges(
+  edges: WorkflowEdge[],
+  nodeIds: Set<string>,
+  nodeTemplatesById: Map<string, NodeTemplate>,
+  errors: string[]
+): void {
   const edgeKeys = new Set<string>();
   const indegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
@@ -111,6 +135,8 @@ function validateEdges(edges: WorkflowEdge[], nodeIds: Set<string>, errors: stri
       errors.push(`${prefix}.targetNodeId '${edge.targetNodeId}' does not exist in nodes.`);
     }
 
+    validatePortCompatibility(edge, prefix, nodeTemplatesById, errors);
+
     if (edge.sourceNodeId === edge.targetNodeId) {
       errors.push(`${prefix} creates self-loop for node '${edge.sourceNodeId}'.`);
     }
@@ -135,6 +161,66 @@ function validateEdges(edges: WorkflowEdge[], nodeIds: Set<string>, errors: stri
   if (nodeIds.size > 0 && hasCycle(nodeIds, indegree, adjacency)) {
     errors.push("Graph must be acyclic. A cycle was detected.");
   }
+}
+
+function validatePortCompatibility(
+  edge: WorkflowEdge,
+  prefix: string,
+  nodeTemplatesById: Map<string, NodeTemplate>,
+  errors: string[]
+): void {
+  if (!edge.sourcePort || !edge.targetPort) {
+    return;
+  }
+
+  const sourceTemplate = nodeTemplatesById.get(edge.sourceNodeId);
+  const targetTemplate = nodeTemplatesById.get(edge.targetNodeId);
+  if (!sourceTemplate || !targetTemplate) {
+    return;
+  }
+
+  const sourcePort = getOutputPorts(sourceTemplate).find((port) => port.id === edge.sourcePort);
+  if (!sourcePort) {
+    errors.push(`${prefix}.sourcePort '${edge.sourcePort}' does not exist on node '${edge.sourceNodeId}' output ports.`);
+    return;
+  }
+
+  const targetPort = getInputPorts(targetTemplate).find((port) => port.id === edge.targetPort);
+  if (!targetPort) {
+    errors.push(`${prefix}.targetPort '${edge.targetPort}' does not exist on node '${edge.targetNodeId}' input ports.`);
+    return;
+  }
+
+  if (sourcePort.channel !== targetPort.channel) {
+    errors.push(
+      `${prefix} connects incompatible channels: source ${edge.sourceNodeId}.${sourcePort.id} ` +
+      `(${sourcePort.channel}) -> target ${edge.targetNodeId}.${targetPort.id} (${targetPort.channel}).`
+    );
+  }
+}
+
+function getInputPorts(template: NodeTemplate): NodeTemplatePort[] {
+  return normalizePorts(template.inputPorts, template.inputs, "input");
+}
+
+function getOutputPorts(template: NodeTemplate): NodeTemplatePort[] {
+  return normalizePorts(template.outputPorts, template.outputs, "output");
+}
+
+function normalizePorts(
+  ports: NodeTemplatePort[] | undefined,
+  count: number,
+  prefix: "input" | "output"
+): NodeTemplatePort[] {
+  if (ports && ports.length > 0) {
+    return ports;
+  }
+
+  return Array.from({ length: Math.max(0, count) }, (_, index) => ({
+    id: `${prefix}_${index + 1}`,
+    label: `${prefix} ${index + 1}`,
+    channel: "data"
+  }));
 }
 
 function hasCycle(nodeIds: Set<string>, indegree: Map<string, number>, adjacency: Map<string, string[]>): boolean {

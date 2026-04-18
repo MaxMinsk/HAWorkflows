@@ -6,6 +6,7 @@ import { PalettePanel } from "./components/PalettePanel";
 import { CanvasPanel } from "./components/CanvasPanel";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { useWorkflowBuilder } from "../features/workflow/hooks/useWorkflowBuilder";
+import { McpSettingsDialog } from "../features/settings/McpSettingsDialog";
 
 /**
  * Что: корневая композиция React-приложения.
@@ -27,6 +28,8 @@ export function App() {
     validationErrors,
     runData,
     nodeTypes,
+    nodeTemplates,
+    mcpSettings,
     editorContainerRef,
     setWorkflowName,
     updateInspectorField,
@@ -52,6 +55,7 @@ export function App() {
         onSave={onSave}
         onRun={onRun}
         onStop={onStop}
+        onOpenSettings={mcpSettings.open}
       />
 
       <main className="layout">
@@ -60,6 +64,7 @@ export function App() {
           currentWorkflowId={currentWorkflowId}
           storedWorkflows={storedWorkflows}
           nodeTypes={nodeTypes}
+          nodeTemplates={nodeTemplates}
           onWorkflowNameChange={setWorkflowName}
           onAddNode={addNode}
           onRefreshStored={onRefreshStored}
@@ -71,6 +76,7 @@ export function App() {
         <InspectorPanel
           inspector={inspector}
           inspectorEnabled={inspectorEnabled}
+          nodeTemplates={nodeTemplates}
           connections={connections}
           validationErrors={validationErrors}
           runData={runData}
@@ -85,7 +91,22 @@ export function App() {
       <div className={`toast ${toast.visible ? "visible" : ""}`} role="status" aria-live="polite">
         {toast.text}
       </div>
+
+      <McpSettingsDialog
+        isOpen={mcpSettings.isOpen}
+        isBusy={mcpSettings.isBusy}
+        configPath={mcpSettings.configPath}
+        exists={mcpSettings.exists}
+        settingsText={mcpSettings.settingsText}
+        selectedProfile={mcpSettings.selectedProfile}
+        error={mcpSettings.error}
+        testResult={mcpSettings.testResult}
+        onSettingsTextChange={mcpSettings.setSettingsText}
+        onSelectedProfileChange={mcpSettings.setSelectedProfile}
+        onSave={mcpSettings.save}
+        onTest={mcpSettings.test}
+        onClose={mcpSettings.close}
+      />
     </div>
   );
 }
-

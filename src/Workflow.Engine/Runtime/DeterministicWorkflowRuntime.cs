@@ -1,6 +1,12 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Workflow.Engine.Definitions;
+using Workflow.Engine.Runtime.Agents;
+using Workflow.Engine.Runtime.Artifacts;
+using Workflow.Engine.Runtime.Mcp;
+using Workflow.Engine.Runtime.Nodes;
+using Workflow.Engine.Runtime.Routing;
 using Workflow.Engine.Validation;
 
 namespace Workflow.Engine.Runtime;
@@ -8,7 +14,7 @@ namespace Workflow.Engine.Runtime;
 /// <summary>
 /// Что: детерминированный DAG runtime для MVP.
 /// Зачем: исполнять граф в topological order с предсказуемыми node status/result.
-/// Как: валидирует definition, выполняет ноды input/transform/log/output и возвращает timeline.
+/// Как: валидирует definition, исполняет ноды через runtime-каталог и возвращает timeline.
 /// </summary>
 public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
 {
@@ -18,15 +24,26 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
     };
 
     private readonly WorkflowDefinitionValidator _validator;
+    private readonly IWorkflowNodeCatalog _nodeCatalog;
+    private readonly IWorkflowArtifactStore _artifactStore;
+    private readonly IAgentExecutorCatalog _agentExecutorCatalog;
+    private readonly IMcpToolInvokerCatalog _mcpToolInvokerCatalog;
+    private readonly IWorkflowModelRoutingPolicy _modelRoutingPolicy;
 
-    public DeterministicWorkflowRuntime()
-        : this(new WorkflowDefinitionValidator())
-    {
-    }
-
-    public DeterministicWorkflowRuntime(WorkflowDefinitionValidator validator)
+    public DeterministicWorkflowRuntime(
+        WorkflowDefinitionValidator validator,
+        IWorkflowNodeCatalog nodeCatalog,
+        IWorkflowArtifactStore artifactStore,
+        IAgentExecutorCatalog agentExecutorCatalog,
+        IMcpToolInvokerCatalog mcpToolInvokerCatalog,
+        IWorkflowModelRoutingPolicy modelRoutingPolicy)
     {
         _validator = validator;
+        _nodeCatalog = nodeCatalog;
+        _artifactStore = artifactStore;
+        _agentExecutorCatalog = agentExecutorCatalog;
+        _mcpToolInvokerCatalog = mcpToolInvokerCatalog;
+        _modelRoutingPolicy = modelRoutingPolicy;
     }
 
     public async Task<WorkflowRunResult> ExecuteAsync(
@@ -39,7 +56,9 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(request);
 
-        var runId = Guid.NewGuid().ToString("N");
+        var runId = string.IsNullOrWhiteSpace(request.RunId)
+            ? Guid.NewGuid().ToString("N")
+            : request.RunId.Trim();
         var startedAtUtc = DateTimeOffset.UtcNow;
         var nodeResults = definition.Nodes
             .Select(node => new WorkflowNodeRunResult
@@ -71,7 +90,7 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
         JsonObject runInputPayload;
         try
         {
-            runInputPayload = ParseInputPayload(request.InputJson);
+            runInputPayload = WorkflowNodePayloadOperations.ParseInputPayload(request.InputJson);
         }
         catch (Exception exception)
         {
@@ -111,6 +130,10 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
             cancellationToken.ThrowIfCancellationRequested();
             var node = nodeById[nodeId];
             var nodeResult = nodeResults[nodeId];
+            var modelRoute = CreateModelRoute(node);
+            ApplyModelRoute(nodeResult, modelRoute);
+            logs.Add(CreateModelRoutingLog(node.Id, modelRoute));
+
             nodeResult.Status = WorkflowNodeRunStatus.Running;
             nodeResult.StartedAtUtc = DateTimeOffset.UtcNow;
             await ReportNodeStatusChangedAsync(nodeResult, onNodeStatusChanged, cancellationToken);
@@ -119,6 +142,7 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
             {
                 var inboundEdges = incomingByTarget.GetValueOrDefault(nodeId) ?? Array.Empty<WorkflowEdgeDefinition>();
                 var inboundPayloads = new List<JsonObject>(inboundEdges.Count);
+                var inboundPortValues = new List<WorkflowNodePortValue>(inboundEdges.Count);
                 foreach (var edge in inboundEdges)
                 {
                     if (!nodeOutputs.TryGetValue(edge.SourceNodeId, out var sourcePayload))
@@ -127,19 +151,31 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
                             $"Missing output for source node '{edge.SourceNodeId}'.");
                     }
 
-                    inboundPayloads.Add(sourcePayload);
+                    var portValue = CreateInboundPortValue(definition, edge, sourcePayload);
+                    inboundPortValues.Add(portValue);
+                    inboundPayloads.Add(string.Equals(portValue.Channel, WorkflowPortChannels.Data, StringComparison.Ordinal)
+                        ? WorkflowNodePayloadOperations.ReadDataEnvelopePayload(portValue.Value)
+                        : WorkflowNodePayloadOperations.CloneObject(portValue.Value));
                 }
 
-                var outputPayload = ExecuteNode(node, inboundPayloads, runInputPayload, logs);
+                var outputPayload = await ExecuteNodeAsync(
+                    runId,
+                    node,
+                    inboundPayloads,
+                    inboundPortValues,
+                    runInputPayload,
+                    modelRoute,
+                    logs,
+                    cancellationToken);
                 nodeOutputs[nodeId] = outputPayload;
                 nodeResult.OutputJson = outputPayload.ToJsonString(JsonSerializerOptions);
                 nodeResult.Status = WorkflowNodeRunStatus.Succeeded;
                 nodeResult.CompletedAtUtc = DateTimeOffset.UtcNow;
                 await ReportNodeStatusChangedAsync(nodeResult, onNodeStatusChanged, cancellationToken);
 
-                if (string.Equals(node.Type, "output", StringComparison.Ordinal))
+                if (_nodeCatalog.TryGetExecutor(node.Type, out var nodeExecutor) && nodeExecutor.Descriptor.ProducesRunOutput)
                 {
-                    finalOutput = CloneObject(outputPayload);
+                    finalOutput = WorkflowNodePayloadOperations.CloneObject(outputPayload);
                 }
             }
             catch (Exception exception)
@@ -170,6 +206,7 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
                 StartedAtUtc = startedAtUtc,
                 CompletedAtUtc = DateTimeOffset.UtcNow,
                 Error = runError,
+                Artifacts = _artifactStore.ListRunArtifacts(runId),
                 NodeResults = nodeResults.Values.ToArray(),
                 Logs = logs
             };
@@ -181,11 +218,11 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
             if (!string.IsNullOrWhiteSpace(lastExecutedNodeId) &&
                 nodeOutputs.TryGetValue(lastExecutedNodeId, out var lastPayload))
             {
-                finalOutput = CloneObject(lastPayload);
+                finalOutput = WorkflowNodePayloadOperations.CloneObject(lastPayload);
             }
             else
             {
-                finalOutput = CloneObject(runInputPayload);
+                finalOutput = WorkflowNodePayloadOperations.CloneObject(runInputPayload);
             }
         }
 
@@ -197,6 +234,7 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
             StartedAtUtc = startedAtUtc,
             CompletedAtUtc = DateTimeOffset.UtcNow,
             OutputJson = finalOutput.ToJsonString(JsonSerializerOptions),
+            Artifacts = _artifactStore.ListRunArtifacts(runId),
             NodeResults = nodeResults.Values.ToArray(),
             Logs = logs
         };
@@ -222,126 +260,164 @@ public sealed class DeterministicWorkflowRuntime : IWorkflowRuntime
                 StartedAtUtc = source.StartedAtUtc,
                 CompletedAtUtc = source.CompletedAtUtc,
                 Error = source.Error,
-                OutputJson = source.OutputJson
+                OutputJson = source.OutputJson,
+                RoutingStage = source.RoutingStage,
+                SelectedTier = source.SelectedTier,
+                SelectedModel = source.SelectedModel,
+                ThinkingMode = source.ThinkingMode,
+                RouteReason = source.RouteReason,
+                RoutingConfidence = source.RoutingConfidence,
+                RoutingRetryCount = source.RoutingRetryCount,
+                RoutingBudgetRemaining = source.RoutingBudgetRemaining
             },
             cancellationToken);
     }
 
-    private static JsonObject ExecuteNode(
+    private Task<JsonObject> ExecuteNodeAsync(
+        string runId,
         WorkflowNodeDefinition node,
         IReadOnlyList<JsonObject> inboundPayloads,
+        IReadOnlyList<WorkflowNodePortValue> inboundPortValues,
         JsonObject runInputPayload,
-        List<WorkflowExecutionLogItem> logs)
+        WorkflowModelRoutingDecision modelRoute,
+        List<WorkflowExecutionLogItem> logs,
+        CancellationToken cancellationToken)
     {
-        var payload = inboundPayloads.Count == 0
-            ? CloneObject(runInputPayload)
-            : MergePayloads(inboundPayloads);
-
-        switch (node.Type)
+        if (!_nodeCatalog.TryGetExecutor(node.Type, out var executor))
         {
-            case "input":
-                ApplySetRemoveConfig(node.Config, payload);
-                return payload;
-            case "transform":
-                ApplySetRemoveConfig(node.Config, payload);
-                return payload;
-            case "log":
-            {
-                ApplySetRemoveConfig(node.Config, payload);
-                var message = TryGetConfigString(node.Config, "message") ?? $"Node '{node.Name}' executed.";
-                logs.Add(new WorkflowExecutionLogItem
-                {
-                    TimestampUtc = DateTimeOffset.UtcNow,
-                    NodeId = node.Id,
-                    Message = message
-                });
-                return payload;
-            }
-            case "output":
-                ApplySetRemoveConfig(node.Config, payload);
-                return payload;
-            default:
-                throw new InvalidOperationException($"Unsupported node type '{node.Type}'.");
+            throw new InvalidOperationException($"Unsupported node type '{node.Type}'.");
         }
+
+        return executor.ExecuteAsync(new WorkflowNodeExecutionContext
+        {
+            RunId = runId,
+            Node = node,
+            InboundPayloads = inboundPayloads,
+            InboundPortValues = inboundPortValues,
+            RunInputPayload = runInputPayload,
+            ArtifactStore = _artifactStore,
+            AgentExecutorCatalog = _agentExecutorCatalog,
+            McpToolInvokerCatalog = _mcpToolInvokerCatalog,
+            ModelRoute = modelRoute,
+            Logs = logs
+        }, cancellationToken);
     }
 
-    private static JsonObject ParseInputPayload(string? inputJson)
+    private WorkflowModelRoutingDecision CreateModelRoute(WorkflowNodeDefinition node)
     {
-        if (string.IsNullOrWhiteSpace(inputJson))
-        {
-            return new JsonObject();
-        }
+        var usesModel = _nodeCatalog.TryGetExecutor(node.Type, out var executor) &&
+                        executor.Descriptor.UsesModel;
 
-        var parsedNode = JsonNode.Parse(inputJson);
-        if (parsedNode is JsonObject parsedObject)
+        return _modelRoutingPolicy.Route(new WorkflowModelRoutingRequest
         {
-            return CloneObject(parsedObject);
-        }
+            NodeId = node.Id,
+            NodeType = node.Type,
+            NodeName = node.Name,
+            UsesModel = usesModel,
+            Stage = ReadConfigString(node.Config, "stage") ??
+                    ReadConfigString(node.Config, "routingStage") ??
+                    ReadConfigString(node.Config, "modelStage"),
+            Confidence = ReadConfigDouble(node.Config, "confidence"),
+            RetryCount = ReadConfigInt(node.Config, "retryCount") ??
+                         ReadConfigInt(node.Config, "retry_count"),
+            BudgetRemaining = ReadConfigDouble(node.Config, "budgetRemaining") ??
+                              ReadConfigDouble(node.Config, "budget_remaining")
+        });
+    }
 
-        return new JsonObject
+    private static void ApplyModelRoute(
+        WorkflowNodeRunResult nodeResult,
+        WorkflowModelRoutingDecision decision)
+    {
+        nodeResult.RoutingStage = decision.Stage;
+        nodeResult.SelectedTier = decision.SelectedTier;
+        nodeResult.SelectedModel = decision.SelectedModel;
+        nodeResult.ThinkingMode = decision.ThinkingMode;
+        nodeResult.RouteReason = decision.RouteReason;
+        nodeResult.RoutingConfidence = decision.TriggerSnapshot.Confidence;
+        nodeResult.RoutingRetryCount = decision.TriggerSnapshot.RetryCount;
+        nodeResult.RoutingBudgetRemaining = decision.TriggerSnapshot.BudgetRemaining;
+    }
+
+    private static WorkflowExecutionLogItem CreateModelRoutingLog(
+        string nodeId,
+        WorkflowModelRoutingDecision decision)
+    {
+        return new WorkflowExecutionLogItem
         {
-            ["value"] = parsedNode?.DeepClone()
+            TimestampUtc = DateTimeOffset.UtcNow,
+            NodeId = nodeId,
+            Message = $"Model routing: stage '{decision.Stage}', policy '{decision.PolicyKey}', tier '{decision.SelectedTier}', model '{decision.SelectedModel}', thinking '{decision.ThinkingMode}', reason '{decision.RouteReason}', confidence '{FormatNullable(decision.TriggerSnapshot.Confidence)}', retry_count '{FormatNullable(decision.TriggerSnapshot.RetryCount)}', budget_remaining '{FormatNullable(decision.TriggerSnapshot.BudgetRemaining)}'."
         };
     }
 
-    private static JsonObject MergePayloads(IReadOnlyList<JsonObject> payloads)
+    private static string? ReadConfigString(JsonElement config, string propertyName)
     {
-        var result = new JsonObject();
-        foreach (var payload in payloads)
-        {
-            foreach (var (key, value) in payload)
-            {
-                result[key] = value?.DeepClone();
-            }
-        }
-
-        return result;
-    }
-
-    private static JsonObject CloneObject(JsonObject payload)
-    {
-        return (JsonObject)payload.DeepClone();
-    }
-
-    private static string? TryGetConfigString(JsonElement config, string propertyName)
-    {
-        if (config.ValueKind != JsonValueKind.Object)
+        if (config.ValueKind != JsonValueKind.Object ||
+            !config.TryGetProperty(propertyName, out var value))
         {
             return null;
         }
 
-        if (!config.TryGetProperty(propertyName, out var value))
-        {
-            return null;
-        }
-
-        return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
     }
 
-    private static void ApplySetRemoveConfig(JsonElement config, JsonObject payload)
+    private static double? ReadConfigDouble(JsonElement config, string propertyName)
     {
-        if (config.ValueKind != JsonValueKind.Object)
+        var value = ReadConfigString(config, propertyName);
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static int? ReadConfigInt(JsonElement config, string propertyName)
+    {
+        var value = ReadConfigString(config, propertyName);
+        return int.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static string FormatNullable(double? value)
+    {
+        return value?.ToString(CultureInfo.InvariantCulture) ?? "null";
+    }
+
+    private static string FormatNullable(int? value)
+    {
+        return value?.ToString(CultureInfo.InvariantCulture) ?? "null";
+    }
+
+    private WorkflowNodePortValue CreateInboundPortValue(
+        WorkflowDefinition definition,
+        WorkflowEdgeDefinition edge,
+        JsonObject sourcePayload)
+    {
+        var channel = ResolveSourcePortChannel(definition, edge);
+        var value = string.Equals(channel, WorkflowPortChannels.Data, StringComparison.Ordinal)
+            ? WorkflowNodePayloadOperations.CreateDataEnvelope(
+                kind: $"{edge.SourceNodeId}.{edge.SourcePort}",
+                payload: sourcePayload)
+            : WorkflowNodePayloadOperations.CloneObject(sourcePayload);
+
+        return new WorkflowNodePortValue(
+            SourceNodeId: edge.SourceNodeId,
+            SourcePort: edge.SourcePort,
+            TargetPort: edge.TargetPort,
+            Channel: channel,
+            Value: value);
+    }
+
+    private string ResolveSourcePortChannel(WorkflowDefinition definition, WorkflowEdgeDefinition edge)
+    {
+        var sourceNode = definition.Nodes.FirstOrDefault(node =>
+            string.Equals(node.Id, edge.SourceNodeId, StringComparison.Ordinal));
+        if (sourceNode is null || !_nodeCatalog.TryGetExecutor(sourceNode.Type, out var executor))
         {
-            return;
+            return WorkflowPortChannels.Data;
         }
 
-        if (config.TryGetProperty("set", out var setObject) && setObject.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in setObject.EnumerateObject())
-            {
-                payload[property.Name] = JsonNode.Parse(property.Value.GetRawText());
-            }
-        }
-
-        if (config.TryGetProperty("remove", out var removeArray) && removeArray.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in removeArray.EnumerateArray())
-            {
-                if (item.ValueKind == JsonValueKind.String)
-                {
-                    payload.Remove(item.GetString() ?? string.Empty);
-                }
-            }
-        }
+        var sourcePort = executor.Descriptor
+            .GetOutputPorts()
+            .FirstOrDefault(port => string.Equals(port.Id, edge.SourcePort, StringComparison.Ordinal));
+        return sourcePort?.Channel ?? WorkflowPortChannels.Data;
     }
 }

@@ -1,10 +1,15 @@
 import {
+  type McpSettingsDocument,
+  type McpSettingsResponse,
+  type NodeTemplatesMap,
   type RunNodeState,
   type RunState,
   type SaveWorkflowRequest,
   type StartRunRequest,
   type StoredWorkflowDetails,
   type StoredWorkflowSummary,
+  type TestMcpProfileRequest,
+  type TestMcpProfileResponse,
   type WorkflowApiClient
 } from "../types/workflow";
 
@@ -27,6 +32,28 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
   }
 
   return {
+    async getNodeTemplates(): Promise<NodeTemplatesMap> {
+      const nodeTypes = await request<NodeTypeResponse[]>("/node-types");
+      const templates: NodeTemplatesMap = {};
+
+      nodeTypes.forEach((nodeType) => {
+        templates[nodeType.type] = {
+          inputs: nodeType.inputs,
+          outputs: nodeType.outputs,
+          label: nodeType.label,
+          description: nodeType.description,
+          pack: nodeType.pack,
+          source: nodeType.source,
+          isLocal: nodeType.isLocal,
+          usesModel: nodeType.usesModel,
+          inputPorts: nodeType.inputPorts,
+          outputPorts: nodeType.outputPorts,
+          configFields: nodeType.configFields
+        };
+      });
+
+      return templates;
+    },
     listWorkflows(): Promise<StoredWorkflowSummary[]> {
       return request<StoredWorkflowSummary[]>("/workflows");
     },
@@ -52,6 +79,23 @@ export function createWorkflowApiClient(storage: Storage = window.localStorage):
     },
     getRunNodes(runId: string): Promise<RunNodeState[]> {
       return request<RunNodeState[]>(`/runs/${encodeURIComponent(runId)}/nodes`);
+    },
+    getMcpSettings(): Promise<McpSettingsResponse> {
+      return request<McpSettingsResponse>("/settings/mcp");
+    },
+    saveMcpSettings(settings: McpSettingsDocument): Promise<McpSettingsResponse> {
+      return request<McpSettingsResponse>("/settings/mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings })
+      });
+    },
+    testMcpProfile(payload: TestMcpProfileRequest): Promise<TestMcpProfileResponse> {
+      return request<TestMcpProfileResponse>("/settings/mcp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
     }
   };
 }
@@ -105,4 +149,44 @@ async function parseApiError(response: Response): Promise<string> {
   }
 
   return `HTTP ${response.status}`;
+}
+
+interface NodeTypeResponse {
+  type: string;
+  label: string;
+  description: string;
+  inputs: number;
+  outputs: number;
+  pack?: string;
+  source?: string;
+  isLocal: boolean;
+  usesModel?: boolean;
+  inputPorts?: NodeTypePortResponse[];
+  outputPorts?: NodeTypePortResponse[];
+  configFields?: NodeTypeConfigFieldResponse[];
+}
+
+interface NodeTypePortResponse {
+  id: string;
+  label: string;
+  channel: string;
+  required?: boolean;
+  acceptedKinds?: string[];
+}
+
+interface NodeTypeConfigFieldResponse {
+  key: string;
+  label: string;
+  fieldType: "text" | "textarea" | "select";
+  description?: string | null;
+  required?: boolean;
+  multiline?: boolean;
+  placeholder?: string | null;
+  defaultValue?: string | null;
+  options?: NodeTypeConfigFieldOptionResponse[];
+}
+
+interface NodeTypeConfigFieldOptionResponse {
+  value: string;
+  label: string;
 }

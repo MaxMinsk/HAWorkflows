@@ -26,7 +26,7 @@ public sealed class WorkflowDefinition
 /// <summary>
 /// Что: описание ноды workflow.
 /// Зачем: задает id/type/name/config для исполнения конкретного шага.
-/// Как: тип ограничен runtime-обработчиками (input/transform/log/output).
+/// Как: type сверяется с активным runtime-каталогом нод (built-in/local profile).
 /// </summary>
 public sealed class WorkflowNodeDefinition
 {
@@ -45,8 +45,8 @@ public sealed class WorkflowNodeDefinition
 
 /// <summary>
 /// Что: направленное ребро между нодами.
-/// Зачем: определяет порядок передачи данных между шагами графа.
-/// Как: source/target + порты используются для построения детерминированного порядка.
+/// Зачем: определяет порядок передачи typed-channel данных между шагами графа.
+/// Как: source/target + port ids сверяются с node descriptor-ами (`data`, `artifact_ref`, `memory_ref`, `control_*`).
 /// </summary>
 public sealed class WorkflowEdgeDefinition
 {
@@ -65,4 +65,3 @@ public sealed class WorkflowEdgeDefinition
     [JsonPropertyName("targetPort")]
     public string TargetPort { get; init; } = string.Empty;
 }
-

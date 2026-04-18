@@ -7,7 +7,10 @@ Home Assistant add-on with:
 ## Options
 
 - `api_database_path` — SQLite path for workflow storage (default `/data/workflow.db`)
+- `workspace_path` — artifact/workspace path for generated files (default `/data/workspace`)
+- `mcp_config_path` — local MCP profile config path (default `/data/mcp.json`)
 - `external_signal_suppression_window_seconds` — idempotency window for `POST /signals/{source}`
+- `enable_local_node_packs` — exposes local-development nodes such as deterministic MCP tool calls.
 
 ## Observability
 

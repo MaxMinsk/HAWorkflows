@@ -50,12 +50,7 @@
         },
         "type": {
           "type": "string",
-          "enum": [
-            "input",
-            "transform",
-            "log",
-            "output"
-          ]
+          "minLength": 1
         },
         "name": {
           "type": "string",

@@ -12,9 +12,18 @@ interface ToolbarProps {
   onSave: () => void;
   onRun: () => void;
   onStop: () => void;
+  onOpenSettings: () => void;
 }
 
-export function Toolbar({ statusText, statusDotColor, onLoad, onSave, onRun, onStop }: ToolbarProps) {
+export function Toolbar({
+  statusText,
+  statusDotColor,
+  onLoad,
+  onSave,
+  onRun,
+  onStop,
+  onOpenSettings
+}: ToolbarProps) {
   return (
     <header className="toolbar" aria-label="Workflow toolbar">
       <div className="toolbar-brand">
@@ -34,6 +43,9 @@ export function Toolbar({ statusText, statusDotColor, onLoad, onSave, onRun, onS
         </button>
         <button className="btn" type="button" onClick={onStop}>
           Stop
+        </button>
+        <button className="btn" type="button" onClick={onOpenSettings}>
+          Settings
         </button>
         <button className="btn" type="button" disabled>
           Deploy
