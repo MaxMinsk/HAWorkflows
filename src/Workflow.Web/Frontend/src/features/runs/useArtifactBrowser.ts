@@ -10,12 +10,14 @@ import type { WorkflowArtifactContent, WorkflowArtifactDescriptor } from "../../
  */
 export function useArtifactBrowser(runId: string | null | undefined) {
   const apiClient = useMemo(() => createWorkflowApiClient(window.localStorage), []);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [selectedArtifact, setSelectedArtifact] = useState<WorkflowArtifactContent | null>(null);
   const [isLoadingArtifact, setIsLoadingArtifact] = useState(false);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    setSelectedArtifactId(null);
     setSelectedArtifact(null);
     setArtifactError(null);
     setCopyStatus(null);
@@ -26,6 +28,16 @@ export function useArtifactBrowser(runId: string | null | undefined) {
       return;
     }
 
+    if (selectedArtifactId === artifact.artifactId && selectedArtifact) {
+      setSelectedArtifactId(null);
+      setSelectedArtifact(null);
+      setArtifactError(null);
+      setCopyStatus(null);
+      return;
+    }
+
+    setSelectedArtifactId(artifact.artifactId);
+    setSelectedArtifact(null);
     setIsLoadingArtifact(true);
     setArtifactError(null);
     setCopyStatus(null);
@@ -39,7 +51,7 @@ export function useArtifactBrowser(runId: string | null | undefined) {
     } finally {
       setIsLoadingArtifact(false);
     }
-  }, [apiClient, runId]);
+  }, [apiClient, runId, selectedArtifact, selectedArtifactId]);
 
   const copyArtifactRef = useCallback(async (artifact: WorkflowArtifactDescriptor) => {
     const artifactRef = artifact.uri || artifact.artifactId;
@@ -47,6 +59,7 @@ export function useArtifactBrowser(runId: string | null | undefined) {
       return;
     }
 
+    setSelectedArtifactId(artifact.artifactId);
     setArtifactError(null);
     setCopyStatus(null);
 
@@ -59,6 +72,7 @@ export function useArtifactBrowser(runId: string | null | undefined) {
   }, []);
 
   return {
+    selectedArtifactId,
     selectedArtifact,
     isLoadingArtifact,
     artifactError,

@@ -21,6 +21,7 @@ export function RunTimeline({ run, nodes, artifacts, onResumeRun }: RunTimelineP
   const runArtifacts = Array.isArray(artifacts) ? artifacts : [];
   const logs = Array.isArray(run?.logs) ? run.logs.slice(-8) : [];
   const {
+    selectedArtifactId,
     selectedArtifact,
     isLoadingArtifact,
     artifactError,
@@ -107,46 +108,51 @@ export function RunTimeline({ run, nodes, artifacts, onResumeRun }: RunTimelineP
         {!hasRun && <li className="timeline-item">No run data</li>}
         {hasRun && runArtifacts.length === 0 && <li className="timeline-item">No artifacts yet</li>}
         {hasRun &&
-          runArtifacts.map((artifact) => (
-            <li className="timeline-item artifact-item" key={artifact.artifactId}>
-              <div className="timeline-item-head">
-                <span className="timeline-item-name">{artifact.name || artifact.artifactId}</span>
-                <span className="timeline-status pending">{artifact.artifactType || "file"}</span>
-              </div>
-              <div className="timeline-item-meta">
-                node {artifact.nodeId || "n/a"} · {formatBytes(artifact.sizeBytes)} · {formatUtcTime(artifact.createdAtUtc)}
-              </div>
-              <div className="timeline-item-meta">{artifact.uri || artifact.relativePath || artifact.artifactId}</div>
-              <div className="artifact-actions">
-                <button className="disconnect-btn" type="button" onClick={() => openArtifact(artifact)}>
-                  View
-                </button>
-                <button className="disconnect-btn" type="button" onClick={() => copyArtifactRef(artifact)}>
-                  Copy Ref
-                </button>
-              </div>
-            </li>
-          ))}
-      </ul>
+          runArtifacts.map((artifact) => {
+            const isSelected = selectedArtifactId === artifact.artifactId;
+            return (
+              <li className="timeline-item artifact-item" key={artifact.artifactId}>
+                <div className="timeline-item-head">
+                  <span className="timeline-item-name">{artifact.name || artifact.artifactId}</span>
+                  <span className="timeline-status pending">{artifact.artifactType || "file"}</span>
+                </div>
+                <div className="timeline-item-meta">
+                  node {artifact.nodeId || "n/a"} · {formatBytes(artifact.sizeBytes)} · {formatUtcTime(artifact.createdAtUtc)}
+                </div>
+                <div className="timeline-item-meta">{artifact.uri || artifact.relativePath || artifact.artifactId}</div>
+                <div className="artifact-actions">
+                  <button className="disconnect-btn" type="button" onClick={() => openArtifact(artifact)}>
+                    {isSelected && isLoadingArtifact ? "Loading..." : isSelected && selectedArtifact ? "Hide" : "View"}
+                  </button>
+                  <button className="disconnect-btn" type="button" onClick={() => copyArtifactRef(artifact)}>
+                    Copy Ref
+                  </button>
+                </div>
 
-      {(isLoadingArtifact || selectedArtifact || artifactError || copyStatus) && (
-        <div className="artifact-preview">
-          <div className="timeline-item-head">
-            <span className="timeline-item-name">
-              {selectedArtifact?.descriptor.name || (isLoadingArtifact ? "Loading artifact..." : "Artifact")}
-            </span>
-            {selectedArtifact && (
-              <span className="timeline-status pending">{selectedArtifact.descriptor.mediaType || "text/plain"}</span>
-            )}
-          </div>
-          {artifactError && <div className="timeline-item-meta artifact-error">{artifactError}</div>}
-          {copyStatus && <div className="timeline-item-meta artifact-copy-status">{copyStatus}</div>}
-          {isLoadingArtifact && <div className="timeline-item-meta">Loading content...</div>}
-          {selectedArtifact && (
-            <pre className="artifact-content">{formatArtifactContent(selectedArtifact.content)}</pre>
-          )}
-        </div>
-      )}
+                {isSelected && (isLoadingArtifact || selectedArtifact || artifactError || copyStatus) && (
+                  <div className="artifact-preview">
+                    <div className="timeline-item-head">
+                      <span className="timeline-item-name">
+                        {selectedArtifact?.descriptor.name || (isLoadingArtifact ? "Loading artifact..." : artifact.name)}
+                      </span>
+                      {selectedArtifact && (
+                        <span className="timeline-status pending">
+                          {selectedArtifact.descriptor.mediaType || "text/plain"}
+                        </span>
+                      )}
+                    </div>
+                    {artifactError && <div className="timeline-item-meta artifact-error">{artifactError}</div>}
+                    {copyStatus && <div className="timeline-item-meta artifact-copy-status">{copyStatus}</div>}
+                    {isLoadingArtifact && <div className="timeline-item-meta">Loading content...</div>}
+                    {selectedArtifact && (
+                      <pre className="artifact-content">{formatArtifactContent(selectedArtifact.content)}</pre>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+      </ul>
     </>
   );
 }
