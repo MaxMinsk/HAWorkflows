@@ -80,14 +80,16 @@ app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
     service = "Workflow.Web",
-    frontendMode = frontendDevServerEnabled ? "vite-dev-proxy" : "static-wwwroot"
+    frontendMode = frontendDevServerEnabled ? "vite-dev-proxy" : "static-wwwroot",
+    apiBaseUrl
 }));
 
 if (frontendDevServerEnabled)
 {
     app.Logger.LogInformation(
-        "Workflow.Web started in Vite dev-proxy mode. Forward target: {FrontendDevServerUrl}",
-        frontendDevServerUrl);
+        "Workflow.Web started in Vite dev-proxy mode. Frontend target: {FrontendDevServerUrl}; API target: {ApiBaseUrl}",
+        frontendDevServerUrl,
+        apiBaseUrl);
 
     app.UseWebSockets();
     app.MapReverseProxy();
