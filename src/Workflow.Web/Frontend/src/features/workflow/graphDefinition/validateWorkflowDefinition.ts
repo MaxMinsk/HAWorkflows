@@ -1,12 +1,12 @@
 import type {
   NodeTemplate,
-  NodeTemplatePort,
   NodeTemplatesMap,
   ValidationResult,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowNode
 } from "../../../shared/types/workflow";
+import { getInputPorts, getOutputPorts } from "../ports/nodePorts";
 
 /**
  * Что: структурная и графовая валидация workflow definition.
@@ -32,6 +32,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, nodeT
 
   const { nodeIds, nodeTemplatesById } = validateNodes(definition.nodes, nodeTemplates, errors);
   validateEdges(definition.edges, nodeIds, nodeTemplatesById, errors);
+  validateRequiredInputPorts(definition.nodes, definition.edges, nodeTemplatesById, errors);
 
   return {
     isValid: errors.length === 0,
@@ -199,28 +200,39 @@ function validatePortCompatibility(
   }
 }
 
-function getInputPorts(template: NodeTemplate): NodeTemplatePort[] {
-  return normalizePorts(template.inputPorts, template.inputs, "input");
-}
+function validateRequiredInputPorts(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  nodeTemplatesById: Map<string, NodeTemplate>,
+  errors: string[]
+): void {
+  const connectedInputs = new Set<string>();
+  edges.forEach((edge) => {
+    if (typeof edge?.targetNodeId === "string" && typeof edge?.targetPort === "string") {
+      connectedInputs.add(`${edge.targetNodeId}|${edge.targetPort}`);
+    }
+  });
 
-function getOutputPorts(template: NodeTemplate): NodeTemplatePort[] {
-  return normalizePorts(template.outputPorts, template.outputs, "output");
-}
+  nodes.forEach((node, index) => {
+    if (!node || typeof node !== "object" || typeof node.id !== "string") {
+      return;
+    }
 
-function normalizePorts(
-  ports: NodeTemplatePort[] | undefined,
-  count: number,
-  prefix: "input" | "output"
-): NodeTemplatePort[] {
-  if (ports && ports.length > 0) {
-    return ports;
-  }
+    const template = nodeTemplatesById.get(node.id);
+    if (!template) {
+      return;
+    }
 
-  return Array.from({ length: Math.max(0, count) }, (_, index) => ({
-    id: `${prefix}_${index + 1}`,
-    label: `${prefix} ${index + 1}`,
-    channel: "data"
-  }));
+    getInputPorts(template)
+      .filter((port) => port.required)
+      .forEach((port) => {
+        if (!connectedInputs.has(`${node.id}|${port.id}`)) {
+          errors.push(
+            `nodes[${index}] input '${port.label}' (${port.id}) is required but not connected.`
+          );
+        }
+      });
+  });
 }
 
 function hasCycle(nodeIds: Set<string>, indegree: Map<string, number>, adjacency: Map<string, string[]>): boolean {

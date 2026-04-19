@@ -2,10 +2,12 @@ import type {
   DrawflowEndpoint,
   DrawflowImportGraph,
   DrawflowImportNode,
+  NodeTemplatePort,
   NodeTemplatesMap,
   WorkflowDefinition,
   WorkflowEdge
 } from "../../../shared/types/workflow";
+import { getInputPorts, getOutputPorts } from "../ports/nodePorts";
 
 /**
  * Что: маппинг workflow definition -> Drawflow import JSON.
@@ -14,7 +16,12 @@ import type {
  */
 interface BuildDrawflowImportDependencies {
   nodeTemplates: NodeTemplatesMap;
-  makeNodeMarkup: (label: string, type: string, description: string) => string;
+  makeNodeMarkup: (
+    label: string,
+    type: string,
+    description: string,
+    ports?: { inputs?: NodeTemplatePort[]; outputs?: NodeTemplatePort[] }
+  ) => string;
 }
 
 interface NormalizedNodeEntry {
@@ -90,7 +97,10 @@ export function buildDrawflowImportFromDefinition(
         config: mapped.config
       },
       class: "workflow-node",
-      html: makeNodeMarkup(mapped.name, nodeType, template.description),
+      html: makeNodeMarkup(mapped.name, nodeType, template.description, {
+        inputs: getInputPorts(template),
+        outputs: getOutputPorts(template)
+      }),
       typenode: false,
       inputs,
       outputs,

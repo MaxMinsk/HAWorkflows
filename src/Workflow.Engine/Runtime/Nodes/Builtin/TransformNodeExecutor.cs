@@ -14,7 +14,15 @@ public sealed class TransformNodeExecutor : IWorkflowNodeExecutor
         Label: "Transform",
         Description: "Deterministic mapping",
         Inputs: 1,
-        Outputs: 1);
+        Outputs: 1,
+        InputPorts:
+        [
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
+        ],
+        OutputPorts:
+        [
+            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+        ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
     {

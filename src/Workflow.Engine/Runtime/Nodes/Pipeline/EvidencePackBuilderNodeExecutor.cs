@@ -50,7 +50,12 @@ public sealed class EvidencePackBuilderNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["workspace_context", "task_text", "jira_issue", "mcp_tool_result"])
         ],
         OutputPorts:
         [

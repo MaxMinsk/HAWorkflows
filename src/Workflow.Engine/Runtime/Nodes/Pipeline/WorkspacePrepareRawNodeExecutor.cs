@@ -50,7 +50,12 @@ public sealed class WorkspacePrepareRawNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["task_text", "jira_issue", "mcp_tool_result", "workflow_data"])
         ],
         OutputPorts:
         [

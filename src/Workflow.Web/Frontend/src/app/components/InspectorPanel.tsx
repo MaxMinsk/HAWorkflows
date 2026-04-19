@@ -5,9 +5,11 @@ import type {
   DrawflowConnectionShape,
   InspectorState,
   NodeTemplateConfigField,
+  NodeTemplatePort,
   NodeTemplatesMap,
   RunData
 } from "../../shared/types/workflow";
+import { formatPortRequirement, getInputPorts, getOutputPorts } from "../../features/workflow/ports/nodePorts";
 
 /**
  * Что: правая панель инспектора ноды и run diagnostics.
@@ -45,6 +47,9 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   const selectedTemplate = nodeTemplates[inspector.nodeType];
   const configFields = selectedTemplate?.configFields ?? [];
+  const inputPorts = getInputPorts(selectedTemplate);
+  const outputPorts = getOutputPorts(selectedTemplate);
+  const selectedNodeId = Number.parseInt(inspector.nodeId, 10);
   const parsedConfig = parseConfigObject(inspector.nodeConfigText);
   const missingRequiredFields = configFields.filter((field) => field.required && isEmptyFieldValue(readFieldValue(parsedConfig, field)));
   const hasConfigValidationErrors = missingRequiredFields.length > 0;
@@ -173,6 +178,28 @@ export function InspectorPanel({
         </button>
       </div>
 
+      {selectedTemplate && (
+        <>
+          <h3>Inputs / Outputs</h3>
+          <div className="io-panel">
+            <PortList
+              title="Inputs"
+              direction="input"
+              ports={inputPorts}
+              connections={connections}
+              selectedNodeId={selectedNodeId}
+            />
+            <PortList
+              title="Outputs"
+              direction="output"
+              ports={outputPorts}
+              connections={connections}
+              selectedNodeId={selectedNodeId}
+            />
+          </div>
+        </>
+      )}
+
       <h3>Connections</h3>
       <ul className="connection-list">
         {connections.length === 0 && <li className="connection-item">No connections</li>}
@@ -200,6 +227,86 @@ export function InspectorPanel({
       />
     </aside>
   );
+}
+
+interface PortListProps {
+  title: string;
+  direction: "input" | "output";
+  ports: NodeTemplatePort[];
+  connections: DrawflowConnectionShape[];
+  selectedNodeId: number;
+}
+
+function PortList({ title, direction, ports, connections, selectedNodeId }: PortListProps) {
+  return (
+    <section className="io-port-group" aria-label={title}>
+      <div className="io-port-group-title">{title}</div>
+      {ports.length === 0 && <div className="io-port-empty">No {direction}s</div>}
+      {ports.map((port) => {
+        const portConnections = getConnectionsForPort(direction, selectedNodeId, port, connections);
+        const isMissingRequiredInput = direction === "input" && port.required && portConnections.length === 0;
+
+        return (
+          <div className={`io-port-card ${isMissingRequiredInput ? "missing-required" : ""}`} key={`${direction}:${port.id}`}>
+            <div className="io-port-head">
+              <span className="io-port-name">{port.label}</span>
+              <span className={`io-port-badge ${port.required ? "required" : ""}`}>
+                {formatPortRequirement(port, direction)}
+              </span>
+            </div>
+            <div className="io-port-meta">
+              <span>{port.id}</span>
+              <span>{port.channel}</span>
+            </div>
+            {port.acceptedKinds && port.acceptedKinds.length > 0 && (
+              <div className="io-port-kinds">accepts: {port.acceptedKinds.join(", ")}</div>
+            )}
+            {port.controlConditionKey && (
+              <div className="io-port-kinds">condition: {port.controlConditionKey}</div>
+            )}
+            <div className="io-port-state">{formatPortConnections(direction, portConnections)}</div>
+            {direction === "input" && !port.required && portConnections.length === 0 && (
+              <div className="io-port-kinds">optional fallback: empty/config/run input, depending on node executor.</div>
+            )}
+            {isMissingRequiredInput && <div className="io-port-warning">Required input is not connected.</div>}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function getConnectionsForPort(
+  direction: "input" | "output",
+  selectedNodeId: number,
+  port: NodeTemplatePort,
+  connections: DrawflowConnectionShape[]
+): DrawflowConnectionShape[] {
+  if (!Number.isFinite(selectedNodeId)) {
+    return [];
+  }
+
+  return connections.filter((connection) => {
+    if (direction === "input") {
+      return connection.input_id === selectedNodeId && connection.input_class === port.id;
+    }
+
+    return connection.output_id === selectedNodeId && connection.output_class === port.id;
+  });
+}
+
+function formatPortConnections(direction: "input" | "output", connections: DrawflowConnectionShape[]): string {
+  if (connections.length === 0) {
+    return "not connected";
+  }
+
+  const labels = connections.map((connection) => (
+    direction === "input"
+      ? `${connection.output_id}:${connection.output_class}`
+      : `${connection.input_id}:${connection.input_class}`
+  ));
+
+  return `connected to ${labels.join(", ")}`;
 }
 
 function parseConfigObject(configText: string): Record<string, unknown> {

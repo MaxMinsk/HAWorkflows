@@ -1,4 +1,5 @@
 import type Drawflow from "drawflow";
+import type { NodeMarkupPorts } from "../../editor/nodeMarkup";
 import type {
   DrawflowConnectionShape,
   DrawflowExportGraph,
@@ -6,6 +7,7 @@ import type {
   DrawflowNodeValue,
   NodeTemplate
 } from "../../../shared/types/workflow";
+import { getInputPorts, getOutputPorts } from "../ports/nodePorts";
 
 interface AddNodeToCanvasOptions {
   type: string;
@@ -13,7 +15,7 @@ interface AddNodeToCanvasOptions {
   container: HTMLDivElement | null;
   x?: number;
   y?: number;
-  makeNodeMarkup: (label: string, type: string, description: string) => string;
+  makeNodeMarkup: (label: string, type: string, description: string, ports?: NodeMarkupPorts) => string;
 }
 
 /**
@@ -104,7 +106,10 @@ export function addNodeToCanvas(editor: Drawflow, options: AddNodeToCanvasOption
     posY,
     "workflow-node",
     { type, name: defaultName, config: {} },
-    makeNodeMarkup(defaultName, type, template.description),
+    makeNodeMarkup(defaultName, type, template.description, {
+      inputs: getInputPorts(template),
+      outputs: getOutputPorts(template)
+    }),
     false
   );
 }

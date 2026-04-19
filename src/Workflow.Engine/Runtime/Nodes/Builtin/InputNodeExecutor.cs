@@ -14,7 +14,11 @@ public sealed class InputNodeExecutor : IWorkflowNodeExecutor
         Label: "Input",
         Description: "Start signal",
         Inputs: 0,
-        Outputs: 1);
+        Outputs: 1,
+        OutputPorts:
+        [
+            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+        ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
     {

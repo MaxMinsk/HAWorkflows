@@ -49,7 +49,7 @@ public sealed class TemplateSelectNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
         ],
         OutputPorts:
         [

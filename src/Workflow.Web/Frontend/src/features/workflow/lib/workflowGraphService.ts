@@ -1,10 +1,9 @@
+import type { NodeMarkupPorts } from "../../editor/nodeMarkup";
 import type {
   DrawflowConnectionShape,
   DrawflowExportGraph,
   DrawflowImportGraph,
   GraphValidationPayload,
-  NodeTemplate,
-  NodeTemplatePort,
   NodeTemplatesMap,
   ValidationResult,
   WorkflowDefinition
@@ -14,10 +13,11 @@ import {
   buildWorkflowDefinitionFromDrawflow,
   validateWorkflowDefinition
 } from "../graphDefinition";
+import { getInputPorts, getOutputPorts } from "../ports/nodePorts";
 
 interface CreateWorkflowGraphServiceDependencies {
   nodeTemplates: NodeTemplatesMap;
-  makeNodeMarkup: (label: string, type: string, description: string) => string;
+  makeNodeMarkup: (label: string, type: string, description: string, ports?: NodeMarkupPorts) => string;
 }
 
 export interface WorkflowGraphService {
@@ -99,28 +99,4 @@ function validateConnectionCompatibility(
   }
 
   return [];
-}
-
-function getInputPorts(template: NodeTemplate): NodeTemplatePort[] {
-  return normalizePorts(template.inputPorts, template.inputs, "input");
-}
-
-function getOutputPorts(template: NodeTemplate): NodeTemplatePort[] {
-  return normalizePorts(template.outputPorts, template.outputs, "output");
-}
-
-function normalizePorts(
-  ports: NodeTemplatePort[] | undefined,
-  count: number,
-  prefix: "input" | "output"
-): NodeTemplatePort[] {
-  if (ports && ports.length > 0) {
-    return ports;
-  }
-
-  return Array.from({ length: Math.max(0, count) }, (_, index) => ({
-    id: `${prefix}_${index + 1}`,
-    label: `${prefix} ${index + 1}`,
-    channel: "data"
-  }));
 }

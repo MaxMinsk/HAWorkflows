@@ -25,6 +25,10 @@ public sealed class TaskTextInputNodeExecutor : IWorkflowNodeExecutor
                 Required: true,
                 Multiline: true,
                 Placeholder: "Paste or type task details...")
+        ],
+        OutputPorts:
+        [
+            new WorkflowNodePortDescriptor("output_1", "Task", WorkflowPortChannels.Data)
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

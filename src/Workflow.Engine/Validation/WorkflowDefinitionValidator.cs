@@ -15,10 +15,37 @@ public sealed class WorkflowDefinitionValidator
     public WorkflowDefinitionValidator()
         : this(new[]
         {
-            new WorkflowNodeDescriptor("input", "Input", "Start signal", 0, 1),
-            new WorkflowNodeDescriptor("transform", "Transform", "Deterministic mapping", 1, 1),
-            new WorkflowNodeDescriptor("log", "Log", "Write execution log", 1, 1),
-            new WorkflowNodeDescriptor("output", "Output", "Final result", 1, 0)
+            new WorkflowNodeDescriptor(
+                "input",
+                "Input",
+                "Start signal",
+                0,
+                1,
+                OutputPorts: [new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)]),
+            new WorkflowNodeDescriptor(
+                "transform",
+                "Transform",
+                "Deterministic mapping",
+                1,
+                1,
+                InputPorts: [new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)],
+                OutputPorts: [new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)]),
+            new WorkflowNodeDescriptor(
+                "log",
+                "Log",
+                "Write execution log",
+                1,
+                1,
+                InputPorts: [new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)],
+                OutputPorts: [new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)]),
+            new WorkflowNodeDescriptor(
+                "output",
+                "Output",
+                "Final result",
+                1,
+                0,
+                ProducesRunOutput: true,
+                InputPorts: [new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)])
         })
     {
     }
@@ -97,6 +124,7 @@ public sealed class WorkflowDefinitionValidator
         }
 
         var edgeKeys = new HashSet<string>(StringComparer.Ordinal);
+        var connectedInputPorts = new HashSet<string>(StringComparer.Ordinal);
         var indegree = nodeIds.ToDictionary(id => id, _ => 0, StringComparer.Ordinal);
         var adjacency = nodeIds.ToDictionary(id => id, _ => new List<string>(), StringComparer.Ordinal);
 
@@ -147,7 +175,14 @@ public sealed class WorkflowDefinitionValidator
                 adjacency[edge.SourceNodeId].Add(edge.TargetNodeId);
                 indegree[edge.TargetNodeId] += 1;
             }
+
+            if (nodeIds.Contains(edge.TargetNodeId) && !string.IsNullOrWhiteSpace(edge.TargetPort))
+            {
+                connectedInputPorts.Add($"{edge.TargetNodeId}|{edge.TargetPort}");
+            }
         }
+
+        ValidateRequiredInputPorts(definition.Nodes, nodeDescriptorsById, connectedInputPorts, errors);
 
         if (errors.Count > 0)
         {
@@ -230,6 +265,30 @@ public sealed class WorkflowDefinitionValidator
             errors.Add(
                 $"{prefix} connects incompatible channels: source {edge.SourceNodeId}.{sourcePort.Id} " +
                 $"({sourcePort.Channel}) -> target {edge.TargetNodeId}.{targetPort.Id} ({targetPort.Channel}).");
+        }
+    }
+
+    private static void ValidateRequiredInputPorts(
+        IReadOnlyList<WorkflowNodeDefinition> nodes,
+        IReadOnlyDictionary<string, WorkflowNodeDescriptor> nodeDescriptorsById,
+        ISet<string> connectedInputPorts,
+        List<string> errors)
+    {
+        for (var i = 0; i < nodes.Count; i += 1)
+        {
+            var node = nodes[i];
+            if (!nodeDescriptorsById.TryGetValue(node.Id, out var descriptor))
+            {
+                continue;
+            }
+
+            foreach (var port in descriptor.GetInputPorts().Where(port => port.Required))
+            {
+                if (!connectedInputPorts.Contains($"{node.Id}|{port.Id}"))
+                {
+                    errors.Add($"nodes[{i}] input '{port.Label}' ({port.Id}) is required but not connected.");
+                }
+            }
         }
     }
 }
