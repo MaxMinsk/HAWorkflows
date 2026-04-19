@@ -17,11 +17,22 @@ public sealed class LogNodeExecutor : IWorkflowNodeExecutor
         Outputs: 1,
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["workflow_data"],
+                Description: "Payload that should pass through while this node writes a timeline log entry.")
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Same payload after writing a log entry.",
+                ProducesKinds: ["workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

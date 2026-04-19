@@ -111,13 +111,35 @@ public sealed class AgentTaskNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
-            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk),
-            new WorkflowNodePortDescriptor("input_3", "Approval Gate", WorkflowPortChannels.ControlApprovalRequired)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                AcceptedKinds: ["evidence_pack", "workspace_context", "task_text", "agent_result", "workflow_data"],
+                Description: "Context payload used to render the agent prompt template.",
+                FallbackDescription: "When not connected, the agent receives run input plus node config/template only.",
+                ExampleSources: ["evidence_pack_builder.output_1", "workspace_prepare_raw.output_1", "agent_task.output_1"]),
+            new WorkflowNodePortDescriptor(
+                "input_2",
+                "Run Gate",
+                WorkflowPortChannels.ControlOk,
+                Description: "Optional control gate for conditional agent execution.",
+                FallbackDescription: "When not connected, the node is eligible to run."),
+            new WorkflowNodePortDescriptor(
+                "input_3",
+                "Approval Gate",
+                WorkflowPortChannels.ControlApprovalRequired,
+                Description: "Optional human approval branch gate.",
+                FallbackDescription: "When not connected, no approval gate is required by the graph.")
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with agent response, routing diagnostics and optional artifact refs.",
+                ProducesKinds: ["agent_result", "workflow_data"])
         ]);
 
     public async Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

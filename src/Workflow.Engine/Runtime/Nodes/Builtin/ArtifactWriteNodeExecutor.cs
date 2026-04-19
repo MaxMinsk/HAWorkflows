@@ -45,11 +45,23 @@ public sealed class ArtifactWriteNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "data", WorkflowPortChannels.Data, Required: true)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["workflow_data", "evidence_pack", "agent_result", "mcp_tool_result"],
+                Description: "Payload to serialize into a workspace artifact.",
+                ExampleSources: ["evidence_pack_builder.output_1", "agent_task.output_1", "mcp_tool_call.output_1"])
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "artifact", WorkflowPortChannels.ArtifactRef)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "artifact",
+                WorkflowPortChannels.ArtifactRef,
+                Description: "Reference to the artifact saved in workflow workspace.",
+                ProducesKinds: ["artifact_ref"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

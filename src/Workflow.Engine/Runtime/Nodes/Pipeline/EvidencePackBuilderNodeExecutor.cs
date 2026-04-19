@@ -55,11 +55,18 @@ public sealed class EvidencePackBuilderNodeExecutor : IWorkflowNodeExecutor
                 "Data",
                 WorkflowPortChannels.Data,
                 Required: true,
-                AcceptedKinds: ["workspace_context", "task_text", "jira_issue", "mcp_tool_result"])
+                AcceptedKinds: ["workspace_context", "task_text", "jira_issue", "mcp_tool_result"],
+                Description: "Workspace context plus optional task/Jira/MCP evidence used to build evidence_pack.json/md.",
+                ExampleSources: ["workspace_prepare_raw.output_1", "mcp_tool_call.output_1", "jira_collect.output_1"])
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with deterministic evidence_pack.json/md artifact refs.",
+                ProducesKinds: ["evidence_pack", "artifact_refs", "workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

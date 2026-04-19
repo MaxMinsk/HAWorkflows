@@ -55,11 +55,18 @@ public sealed class WorkspacePrepareRawNodeExecutor : IWorkflowNodeExecutor
                 "Data",
                 WorkflowPortChannels.Data,
                 Required: true,
-                AcceptedKinds: ["task_text", "jira_issue", "mcp_tool_result", "workflow_data"])
+                AcceptedKinds: ["task_text", "jira_issue", "mcp_tool_result", "workflow_data"],
+                Description: "Task/Jira/MCP payload that should be persisted as raw workspace artifacts.",
+                ExampleSources: ["task_text_input.output_1", "jira_collect.output_1", "mcp_tool_call.output_1"])
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with raw workspace paths and artifact references.",
+                ProducesKinds: ["workspace_context", "raw_artifact_refs", "workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

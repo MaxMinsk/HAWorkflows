@@ -17,11 +17,23 @@ public sealed class TransformNodeExecutor : IWorkflowNodeExecutor
         Outputs: 1,
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["workflow_data"],
+                Description: "Payload to mutate with deterministic set/remove config.",
+                ExampleSources: ["input.output_1", "task_text_input.output_1", "mcp_tool_call.output_1"])
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Transformed workflow payload.",
+                ProducesKinds: ["workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

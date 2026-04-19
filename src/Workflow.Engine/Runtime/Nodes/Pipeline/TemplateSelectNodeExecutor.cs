@@ -49,26 +49,44 @@ public sealed class TemplateSelectNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["task_text", "jira_issue", "workflow_data"],
+                Description: "Task or issue payload used to select the pipeline template.",
+                ExampleSources: ["task_text_input.output_1", "jira_collect.output_1", "mcp_tool_call.output_1"])
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data),
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with selected pipeline template and branch flags.",
+                ProducesKinds: ["pipeline_template", "workflow_data"]),
             new WorkflowNodePortDescriptor(
                 "output_2",
                 "Requires Logs",
                 WorkflowPortChannels.ControlOk,
-                ControlConditionKey: "pipeline_branches.requires_logs_collect"),
+                ControlConditionKey: "pipeline_branches.requires_logs_collect",
+                Description: "Control signal active when the selected template needs logs collection.",
+                ProducesKinds: ["branch_signal"]),
             new WorkflowNodePortDescriptor(
                 "output_3",
                 "Requires Wiki",
                 WorkflowPortChannels.ControlOk,
-                ControlConditionKey: "pipeline_branches.requires_wiki_collect"),
+                ControlConditionKey: "pipeline_branches.requires_wiki_collect",
+                Description: "Control signal active when the selected template needs wiki/documentation collection.",
+                ProducesKinds: ["branch_signal"]),
             new WorkflowNodePortDescriptor(
                 "output_4",
                 "Requires Approval",
                 WorkflowPortChannels.ControlApprovalRequired,
-                ControlConditionKey: "pipeline_branches.requires_human_approve")
+                ControlConditionKey: "pipeline_branches.requires_human_approve",
+                Description: "Control signal active when the selected template needs a human approval gate.",
+                ProducesKinds: ["branch_signal"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

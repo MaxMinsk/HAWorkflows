@@ -754,11 +754,17 @@ textarea {
 }
 
 .io-port-meta,
+.io-port-description,
 .io-port-kinds,
 .io-port-state {
   color: var(--muted);
   font-size: 11px;
   word-break: break-word;
+}
+
+.io-port-description {
+  color: var(--text);
+  line-height: 1.35;
 }
 
 .io-port-meta {

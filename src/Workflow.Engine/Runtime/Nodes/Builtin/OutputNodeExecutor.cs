@@ -18,7 +18,14 @@ public sealed class OutputNodeExecutor : IWorkflowNodeExecutor
         ProducesRunOutput: true,
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data, Required: true)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Required: true,
+                AcceptedKinds: ["workflow_data", "agent_result", "evidence_pack"],
+                Description: "Final payload captured as workflow run output.",
+                ExampleSources: ["agent_task.output_1", "evidence_pack_builder.output_1", "transform.output_1"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

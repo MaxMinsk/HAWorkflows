@@ -53,12 +53,29 @@ public sealed class JiraCollectNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
-            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                AcceptedKinds: ["task_text", "workflow_data"],
+                Description: "Optional payload to enrich with manually configured Jira fields.",
+                FallbackDescription: "When not connected, the node starts from run input and its own config.",
+                ExampleSources: ["task_text_input.output_1", "template_select.output_1"]),
+            new WorkflowNodePortDescriptor(
+                "input_2",
+                "Run Gate",
+                WorkflowPortChannels.ControlOk,
+                Description: "Optional control gate for conditional Jira collection.",
+                FallbackDescription: "When not connected, the node is eligible to run.")
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with Jira issue fields.",
+                ProducesKinds: ["jira_issue", "workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

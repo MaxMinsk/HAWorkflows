@@ -52,13 +52,23 @@ function renderPortRow(direction: "in" | "out", ports: NodeTemplatePort[]): stri
 function renderPortChip(port: NodeTemplatePort): string {
   const requirement = port.required ? " required" : "";
   const suffix = port.required ? " *" : "";
-  const title = `${port.label} (${port.channel})${port.required ? ", required" : ""}`;
+  const titleParts = [
+    `${port.label} (${port.channel})${port.required ? ", required" : ""}`,
+    port.description,
+    formatKinds("accepts", port.acceptedKinds),
+    formatKinds("produces", port.producesKinds),
+    port.fallbackDescription ? `fallback: ${port.fallbackDescription}` : null
+  ].filter(Boolean);
 
   return (
-    `<span class="workflow-node-port-chip${requirement}" title="${escapeHtml(title)}">` +
+    `<span class="workflow-node-port-chip${requirement}" title="${escapeHtml(titleParts.join(" | "))}">` +
     `${escapeHtml(port.label)}${suffix}` +
     "</span>"
   );
+}
+
+function formatKinds(label: string, kinds: string[] | undefined): string | null {
+  return kinds && kinds.length > 0 ? `${label}: ${kinds.join(", ")}` : null;
 }
 
 function escapeHtml(value: unknown): string {

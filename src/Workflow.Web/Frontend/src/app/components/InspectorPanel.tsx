@@ -257,16 +257,24 @@ function PortList({ title, direction, ports, connections, selectedNodeId }: Port
             <div className="io-port-meta">
               <span>{port.id}</span>
               <span>{port.channel}</span>
+              <span>{port.allowMultiple === false ? "single connection" : "multiple connections allowed"}</span>
             </div>
+            {port.description && <div className="io-port-description">{port.description}</div>}
             {port.acceptedKinds && port.acceptedKinds.length > 0 && (
               <div className="io-port-kinds">accepts: {port.acceptedKinds.join(", ")}</div>
+            )}
+            {port.producesKinds && port.producesKinds.length > 0 && (
+              <div className="io-port-kinds">produces: {port.producesKinds.join(", ")}</div>
+            )}
+            {port.exampleSources && port.exampleSources.length > 0 && (
+              <div className="io-port-kinds">examples: {port.exampleSources.join(", ")}</div>
             )}
             {port.controlConditionKey && (
               <div className="io-port-kinds">condition: {port.controlConditionKey}</div>
             )}
             <div className="io-port-state">{formatPortConnections(direction, portConnections)}</div>
-            {direction === "input" && !port.required && portConnections.length === 0 && (
-              <div className="io-port-kinds">optional fallback: empty/config/run input, depending on node executor.</div>
+            {direction === "input" && portConnections.length === 0 && port.fallbackDescription && (
+              <div className="io-port-kinds">fallback: {port.fallbackDescription}</div>
             )}
             {isMissingRequiredInput && <div className="io-port-warning">Required input is not connected.</div>}
           </div>

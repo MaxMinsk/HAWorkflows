@@ -77,7 +77,7 @@ public static class WorkflowNodeSources
 /// <summary>
 /// Что: описание одного входного или выходного порта ноды.
 /// Зачем: валидировать совместимость соединений по каналам (`data`, `artifact_ref`, `memory_ref`, `control_*`).
-/// Как: id совпадает с Drawflow class (`input_1`/`output_1`), channel задает допустимый тип связи.
+/// Как: id совпадает с Drawflow class (`input_1`/`output_1`), channel задает базовую совместимость, metadata объясняет UI ожидаемые/производимые payload kinds.
 /// </summary>
 public sealed record WorkflowNodePortDescriptor(
     string Id,
@@ -85,7 +85,12 @@ public sealed record WorkflowNodePortDescriptor(
     string Channel,
     bool Required = false,
     IReadOnlyList<string>? AcceptedKinds = null,
-    string? ControlConditionKey = null);
+    string? ControlConditionKey = null,
+    string? Description = null,
+    IReadOnlyList<string>? ProducesKinds = null,
+    string? FallbackDescription = null,
+    IReadOnlyList<string>? ExampleSources = null,
+    bool AllowMultiple = true);
 
 /// <summary>
 /// Что: канонические channel-типы портов.

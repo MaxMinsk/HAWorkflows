@@ -241,7 +241,12 @@ app.MapGet(
                         Channel: port.Channel,
                         Required: port.Required,
                         AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>(),
-                        ControlConditionKey: port.ControlConditionKey))
+                        ControlConditionKey: port.ControlConditionKey,
+                        Description: port.Description,
+                        ProducesKinds: port.ProducesKinds ?? Array.Empty<string>(),
+                        FallbackDescription: port.FallbackDescription,
+                        ExampleSources: port.ExampleSources ?? Array.Empty<string>(),
+                        AllowMultiple: port.AllowMultiple))
                     .ToArray(),
                 OutputPorts: descriptor.GetOutputPorts()
                     .Select(port => new NodeTypePortResponse(
@@ -250,7 +255,12 @@ app.MapGet(
                         Channel: port.Channel,
                         Required: port.Required,
                         AcceptedKinds: port.AcceptedKinds ?? Array.Empty<string>(),
-                        ControlConditionKey: port.ControlConditionKey))
+                        ControlConditionKey: port.ControlConditionKey,
+                        Description: port.Description,
+                        ProducesKinds: port.ProducesKinds ?? Array.Empty<string>(),
+                        FallbackDescription: port.FallbackDescription,
+                        ExampleSources: port.ExampleSources ?? Array.Empty<string>(),
+                        AllowMultiple: port.AllowMultiple))
                     .ToArray(),
                 ConfigFields: (descriptor.ConfigFields ?? Array.Empty<WorkflowNodeConfigFieldDescriptor>())
                     .Select(field => new NodeTypeConfigFieldResponse(
@@ -1097,7 +1107,12 @@ public sealed record NodeTypePortResponse(
     string Channel,
     bool Required,
     IReadOnlyList<string> AcceptedKinds,
-    string? ControlConditionKey);
+    string? ControlConditionKey,
+    string? Description,
+    IReadOnlyList<string> ProducesKinds,
+    string? FallbackDescription,
+    IReadOnlyList<string> ExampleSources,
+    bool AllowMultiple);
 
 public sealed record NodeTypeConfigFieldResponse(
     string Key,

@@ -17,7 +17,12 @@ public sealed class InputNodeExecutor : IWorkflowNodeExecutor
         Outputs: 1,
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                Description: "Initial run payload passed to the workflow.",
+                ProducesKinds: ["run_input", "workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

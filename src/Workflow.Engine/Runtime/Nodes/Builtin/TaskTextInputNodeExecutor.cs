@@ -28,7 +28,12 @@ public sealed class TaskTextInputNodeExecutor : IWorkflowNodeExecutor
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "Task", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "Task",
+                WorkflowPortChannels.Data,
+                Description: "Normalized plain-text task payload built from config.taskText.",
+                ProducesKinds: ["task_text", "workflow_data"])
         ]);
 
     public Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)

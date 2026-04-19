@@ -217,6 +217,11 @@ interface NodeTypePortResponse {
   required?: boolean;
   acceptedKinds?: string[];
   controlConditionKey?: string | null;
+  description?: string | null;
+  producesKinds?: string[];
+  fallbackDescription?: string | null;
+  exampleSources?: string[];
+  allowMultiple?: boolean;
 }
 
 interface NodeTypeConfigFieldResponse {

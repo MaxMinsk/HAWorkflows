@@ -77,12 +77,29 @@ public sealed class McpToolCallNodeExecutor : IWorkflowNodeExecutor
         ],
         InputPorts:
         [
-            new WorkflowNodePortDescriptor("input_1", "Data", WorkflowPortChannels.Data),
-            new WorkflowNodePortDescriptor("input_2", "Run Gate", WorkflowPortChannels.ControlOk)
+            new WorkflowNodePortDescriptor(
+                "input_1",
+                "Data",
+                WorkflowPortChannels.Data,
+                AcceptedKinds: ["task_text", "jira_issue", "workspace_context", "workflow_data"],
+                Description: "Payload used to render argumentsJson and provide default MCP arguments.",
+                FallbackDescription: "When not connected, the node uses the run input payload and its config.",
+                ExampleSources: ["task_text_input.output_1", "template_select.output_1", "workspace_prepare_raw.output_1"]),
+            new WorkflowNodePortDescriptor(
+                "input_2",
+                "Run Gate",
+                WorkflowPortChannels.ControlOk,
+                Description: "Optional control gate for conditional MCP execution.",
+                FallbackDescription: "When not connected, the node is eligible to run.")
         ],
         OutputPorts:
         [
-            new WorkflowNodePortDescriptor("output_1", "data", WorkflowPortChannels.Data)
+            new WorkflowNodePortDescriptor(
+                "output_1",
+                "data",
+                WorkflowPortChannels.Data,
+                Description: "Payload enriched with normalized MCP result and optional artifact refs.",
+                ProducesKinds: ["mcp_tool_result", "workflow_data"])
         ]);
 
     public async Task<JsonObject> ExecuteAsync(WorkflowNodeExecutionContext context, CancellationToken cancellationToken)
