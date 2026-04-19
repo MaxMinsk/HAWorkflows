@@ -97,6 +97,42 @@ export function useDrawflowEditor({
     applyNodeTitle(nodeId, name);
   }, []);
 
+  const applyInspectorDraftToSelectedNode = useCallback((): boolean => {
+    const editor = editorRef.current;
+    if (!editor || selectedNodeIdRef.current === null) {
+      return true;
+    }
+
+    const node = getNode(editor, selectedNodeIdRef.current);
+    if (!node) {
+      return true;
+    }
+
+    let parsedConfig: Record<string, unknown> = {};
+    try {
+      if (inspector.nodeConfigText.trim() !== "") {
+        const parsed = JSON.parse(inspector.nodeConfigText) as unknown;
+        if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+          throw new Error("Config must be a JSON object.");
+        }
+
+        parsedConfig = parsed as Record<string, unknown>;
+      }
+    } catch (error) {
+      const message = getErrorMessage(error, "Invalid node config");
+      setValidationErrors([`Selected node config is invalid: ${message}`]);
+      onStatus("Config validation error", "error");
+      onToast(message);
+      return false;
+    }
+
+    const nextName = (inspector.nodeName || "").trim() || `${inspector.nodeType} Node`;
+    const nextData = { ...node.data, name: nextName, config: parsedConfig };
+    updateNodeData(editor, selectedNodeIdRef.current, nextData);
+    syncNodeMarkup(selectedNodeIdRef.current, nextName);
+    return true;
+  }, [inspector, onStatus, onToast, selectedNodeIdRef, syncNodeMarkup]);
+
   const rebuildConnectionIndexAndMarkup = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) {
@@ -113,11 +149,15 @@ export function useDrawflowEditor({
       return null;
     }
 
+    if (!applyInspectorDraftToSelectedNode()) {
+      return null;
+    }
+
     const graphJson = exportGraph(editor);
     const validationPayload = graphService.buildValidationPayload(graphJson);
     setValidationErrors(validationPayload.validationResult.errors);
     return validationPayload;
-  }, [graphService]);
+  }, [applyInspectorDraftToSelectedNode, graphService]);
 
   const validateConnection = useCallback((connection: DrawflowConnectionShape): string[] => {
     const editor = editorRef.current;
@@ -247,39 +287,15 @@ export function useDrawflowEditor({
   }, []);
 
   const onUpdateNode = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor || selectedNodeIdRef.current === null) {
+    if (!applyInspectorDraftToSelectedNode()) {
       return;
     }
 
-    const node = getNode(editor, selectedNodeIdRef.current);
-    if (!node) {
-      return;
-    }
-
-    let parsedConfig = {};
-    try {
-      if (inspector.nodeConfigText.trim() !== "") {
-        parsedConfig = JSON.parse(inspector.nodeConfigText);
-      }
-      if (parsedConfig === null || Array.isArray(parsedConfig) || typeof parsedConfig !== "object") {
-        throw new Error("Config must be a JSON object.");
-      }
-    } catch (error) {
-      onStatus("Config validation error", "error");
-      onToast(getErrorMessage(error, "Invalid node config"));
-      return;
-    }
-
-    const nextName = (inspector.nodeName || "").trim() || `${inspector.nodeType} Node`;
-    const nextData = { ...node.data, name: nextName, config: parsedConfig };
-    updateNodeData(editor, selectedNodeIdRef.current, nextData);
-    syncNodeMarkup(selectedNodeIdRef.current, nextName);
     syncInspector(selectedNodeIdRef.current);
     validateCurrentGraph();
     onStatus("Node updated", "idle");
     onToast("Node updated");
-  }, [inspector, onStatus, onToast, selectedNodeIdRef, syncInspector, syncNodeMarkup, validateCurrentGraph]);
+  }, [applyInspectorDraftToSelectedNode, onStatus, onToast, selectedNodeIdRef, syncInspector, validateCurrentGraph]);
 
   useDrawflowLifecycle({
     editorContainerRef,

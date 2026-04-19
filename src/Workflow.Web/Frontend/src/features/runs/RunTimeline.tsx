@@ -57,8 +57,11 @@ export function RunTimeline({ run, nodes, artifacts, onResumeRun }: RunTimelineP
       {hasRun && run?.canResume && (
         <div className="palette-actions">
           <button className="btn" type="button" onClick={() => onResumeRun(run.runId)}>
-            Resume Run
+            Resume Checkpoint
           </button>
+          <span className="timeline-item-meta">
+            Uses the saved failed run definition. Use top Run for edited graph parameters.
+          </span>
         </div>
       )}
 
