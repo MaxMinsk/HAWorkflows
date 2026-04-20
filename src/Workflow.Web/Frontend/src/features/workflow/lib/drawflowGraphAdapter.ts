@@ -137,6 +137,15 @@ export function removeConnection(editor: Drawflow, connection: DrawflowConnectio
   );
 }
 
+export function addConnection(editor: Drawflow, connection: DrawflowConnectionShape): void {
+  editor.addConnection(
+    connection.output_id,
+    connection.input_id,
+    connection.output_class,
+    connection.input_class
+  );
+}
+
 export function getNode(editor: Drawflow, nodeId: number): DrawflowNodeValue | null {
   const node = editor.getNodeFromId(nodeId) as DrawflowNodeValue | null;
   return node ?? null;
@@ -144,4 +153,50 @@ export function getNode(editor: Drawflow, nodeId: number): DrawflowNodeValue | n
 
 export function updateNodeData(editor: Drawflow, nodeId: number, data: Record<string, unknown>): void {
   editor.updateNodeDataFromId(nodeId, data);
+}
+
+const RUN_STATUS_CLASSES = [
+  "run-status-pending",
+  "run-status-running",
+  "run-status-succeeded",
+  "run-status-failed",
+  "run-status-skipped"
+] as const;
+
+export interface NodeStatusOverlay {
+  nodeId: string;
+  status: string;
+}
+
+export function applyNodeStatusOverlays(
+  container: HTMLElement,
+  nodeStatuses: NodeStatusOverlay[]
+): void {
+  clearNodeStatusOverlays(container);
+  container.classList.add("run-overlay-active");
+
+  for (const { nodeId, status } of nodeStatuses) {
+    const element = container.querySelector<HTMLElement>(`#node-${nodeId}`);
+    if (!element) continue;
+    const statusClass = `run-status-${normalizeStatus(status)}`;
+    element.classList.add(statusClass);
+  }
+}
+
+export function clearNodeStatusOverlays(container: HTMLElement): void {
+  container.classList.remove("run-overlay-active");
+  for (const cls of RUN_STATUS_CLASSES) {
+    container.querySelectorAll<HTMLElement>(`.${cls}`).forEach((el) => {
+      el.classList.remove(cls);
+    });
+  }
+}
+
+function normalizeStatus(status: string): string {
+  const lowered = (status ?? "").toLowerCase();
+  if (lowered === "running") return "running";
+  if (lowered === "succeeded") return "succeeded";
+  if (lowered === "failed") return "failed";
+  if (lowered === "skipped") return "skipped";
+  return "pending";
 }

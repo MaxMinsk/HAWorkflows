@@ -1,11 +1,19 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import Drawflow from "drawflow";
-import { removeConnection } from "../lib/drawflowGraphAdapter";
+import { exportGraph, removeConnection } from "../lib/drawflowGraphAdapter";
 import type {
+  ConnectionAssistantSource,
   DrawflowConnectionShape,
+  DrawflowConnectionStartShape,
   GraphValidationPayload,
+  NodeTemplatesMap,
   StatusLevel
 } from "../../../shared/types/workflow";
+import {
+  applyConnectionTargetHighlights,
+  clearConnectionTargetHighlights,
+  createConnectionAssistantSource
+} from "../lib/connectionAssistant";
 
 /**
  * Что: lifecycle Drawflow-экземпляра и подписки на события редактора.
@@ -16,6 +24,7 @@ interface UseDrawflowLifecycleProps {
   editorContainerRef: MutableRefObject<HTMLDivElement | null>;
   editorRef: MutableRefObject<Drawflow | null>;
   connectionIndexRef: MutableRefObject<Map<string, DrawflowConnectionShape>>;
+  nodeTemplates: NodeTemplatesMap;
   selectedNodeIdRef: MutableRefObject<number | null>;
   setSelectedNodeId: (nodeId: number | null) => void;
   setIsEditorReady: (isReady: boolean) => void;
@@ -27,6 +36,7 @@ interface UseDrawflowLifecycleProps {
   refreshEmptyState: () => void;
   validateCurrentGraph: () => GraphValidationPayload | null;
   validateConnection: (connection: DrawflowConnectionShape) => string[];
+  onConnectionAssistantSource: (source: ConnectionAssistantSource | null) => void;
   onStatus: (text: string, level: StatusLevel) => void;
 }
 
@@ -34,6 +44,7 @@ export function useDrawflowLifecycle({
   editorContainerRef,
   editorRef,
   connectionIndexRef,
+  nodeTemplates,
   selectedNodeIdRef,
   setSelectedNodeId,
   setIsEditorReady,
@@ -45,9 +56,11 @@ export function useDrawflowLifecycle({
   refreshEmptyState,
   validateCurrentGraph,
   validateConnection,
+  onConnectionAssistantSource,
   onStatus
 }: UseDrawflowLifecycleProps) {
   const handlersRef = useRef({
+    nodeTemplates,
     syncInspector,
     clearInspector,
     renderConnectionsForNode,
@@ -56,11 +69,13 @@ export function useDrawflowLifecycle({
     refreshEmptyState,
     validateCurrentGraph,
     validateConnection,
+    onConnectionAssistantSource,
     onStatus
   });
 
   useEffect(() => {
     handlersRef.current = {
+      nodeTemplates,
       syncInspector,
       clearInspector,
       renderConnectionsForNode,
@@ -69,9 +84,11 @@ export function useDrawflowLifecycle({
       refreshEmptyState,
       validateCurrentGraph,
       validateConnection,
+      onConnectionAssistantSource,
       onStatus
     };
   }, [
+    nodeTemplates,
     syncInspector,
     clearInspector,
     renderConnectionsForNode,
@@ -80,6 +97,7 @@ export function useDrawflowLifecycle({
     refreshEmptyState,
     validateCurrentGraph,
     validateConnection,
+    onConnectionAssistantSource,
     onStatus
   ]);
 
@@ -99,6 +117,7 @@ export function useDrawflowLifecycle({
 
     editor.on("nodeSelected", (nodeId: unknown) => {
       const id = Number(nodeId);
+      handlersRef.current.onConnectionAssistantSource(null);
       setSelectedNodeId(id);
       handlersRef.current.syncInspector(id);
       handlersRef.current.onStatus(`Selected node ${id}`, "idle");
@@ -108,6 +127,27 @@ export function useDrawflowLifecycle({
       setSelectedNodeId(null);
       handlersRef.current.clearInspector();
       handlersRef.current.onStatus("Idle", "idle");
+    });
+
+    editor.on("connectionStart", (source: DrawflowConnectionStartShape) => {
+      const graphJson = exportGraph(editor);
+      const assistantSource = createConnectionAssistantSource(graphJson, source);
+      handlersRef.current.onConnectionAssistantSource(assistantSource);
+
+      if (assistantSource) {
+        applyConnectionTargetHighlights(
+          editorContainer,
+          graphJson,
+          handlersRef.current.nodeTemplates,
+          assistantSource
+        );
+        handlersRef.current.onStatus("Connection assistant: compatible target ports highlighted", "active");
+      }
+    });
+
+    editor.on("connectionCancel", () => {
+      clearConnectionTargetHighlights(editorContainer);
+      handlersRef.current.onStatus("Connection cancelled; suggested next nodes are available in Inspector", "idle");
     });
 
     editor.on("nodeRemoved", (nodeIdRaw: unknown) => {
@@ -131,6 +171,8 @@ export function useDrawflowLifecycle({
     });
 
     editor.on("connectionCreated", (connection: DrawflowConnectionShape) => {
+      clearConnectionTargetHighlights(editorContainer);
+      handlersRef.current.onConnectionAssistantSource(null);
       const connectionErrors = handlersRef.current.validateConnection(connection);
       if (connectionErrors.length > 0) {
         removeConnection(editor, connection);
@@ -149,6 +191,7 @@ export function useDrawflowLifecycle({
     });
 
     editor.on("connectionRemoved", (connection: DrawflowConnectionShape) => {
+      clearConnectionTargetHighlights(editorContainer);
       connectionIndexRef.current.delete(handlersRef.current.getConnectionKey(connection));
       handlersRef.current.renderConnectionsForNode(selectedNodeIdRef.current);
       handlersRef.current.validateCurrentGraph();
@@ -163,6 +206,7 @@ export function useDrawflowLifecycle({
       if (editorRef.current === editor) {
         editorRef.current = null;
       }
+      clearConnectionTargetHighlights(editorContainer);
       if (editorContainerRef.current) {
         editorContainerRef.current.innerHTML = "";
       }

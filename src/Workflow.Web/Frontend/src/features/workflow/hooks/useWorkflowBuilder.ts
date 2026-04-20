@@ -1,26 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createWorkflowApiClient } from "../../../shared/api/workflowApiClient";
-import type { NodeTemplatesMap, WorkflowBuilderViewModel } from "../../../shared/types/workflow";
+import { useEffect, useRef, useState } from "react";
+import type {
+  McpSettingsDialogState,
+  NodeTemplatesMap,
+  WorkflowApiClient,
+  WorkflowBuilderViewModel
+} from "../../../shared/types/workflow";
 import { useDrawflowEditor } from "./useDrawflowEditor";
 import { useWorkflowStorage } from "./useWorkflowStorage";
 import { useRunPolling } from "./useRunPolling";
 import { useUiFeedback } from "./useUiFeedback";
 import { useRunActions } from "./useRunActions";
-import { useMcpSettingsDialog } from "../../settings/useMcpSettingsDialog";
+
+interface UseWorkflowBuilderProps {
+  apiClient: WorkflowApiClient;
+  mcpSettings: McpSettingsDialogState;
+}
 
 /**
  * Что: orchestration-хук для Workflow Builder.
  * Зачем: связать editor/storage/runs, оставив App-компонент декларативным и компактным.
  * Как: агрегирует под-хуки по доменам и отдает единый API слою представления.
  */
-export function useWorkflowBuilder(): WorkflowBuilderViewModel {
-  const apiClient = useMemo(() => createWorkflowApiClient(window.localStorage), []);
+export function useWorkflowBuilder({ apiClient, mcpSettings }: UseWorkflowBuilderProps): WorkflowBuilderViewModel {
   const [nodeTemplates, setNodeTemplates] = useState<NodeTemplatesMap>({});
   const [isNodeCatalogReady, setIsNodeCatalogReady] = useState(false);
   const [workflowName, setWorkflowName] = useState("Draft Workflow");
   const onSaveRequestedRef = useRef<(() => Promise<void>) | (() => void)>(() => {});
   const ui = useUiFeedback();
-  const mcpSettings = useMcpSettingsDialog(apiClient);
 
   const editor = useDrawflowEditor({
     nodeTemplates,
@@ -110,6 +116,7 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
     storedWorkflows: storage.storedWorkflows,
     inspector: editor.inspector,
     inspectorEnabled: editor.inspectorEnabled,
+    connectionAssistantSuggestions: editor.connectionAssistantSuggestions,
     connections: editor.connections,
     validationErrors: editor.validationErrors,
     runData: runs.runData,
@@ -120,6 +127,7 @@ export function useWorkflowBuilder(): WorkflowBuilderViewModel {
     mcpSettings,
     updateInspectorField: editor.setInspectorField,
     addNode: editor.addNode,
+    addSuggestedNode: editor.addSuggestedNode,
     removeSelectedNode: editor.removeSelectedNode,
     getConnectionKey: editor.getConnectionKey,
     disconnectConnection: editor.disconnectConnection,

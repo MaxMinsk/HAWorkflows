@@ -4,12 +4,15 @@ import { getErrorMessage } from "../../../shared/lib/errorMessage";
 import { makeNodeMarkup } from "../../editor/nodeMarkup";
 import type {
   ClipboardNode,
+  ConnectionAssistantSource,
+  ConnectionAssistantSuggestion,
   DrawflowConnectionShape,
   GraphValidationPayload,
   NodeTemplatesMap,
   StatusLevel,
   WorkflowDefinition
 } from "../../../shared/types/workflow";
+import { buildConnectionAssistantSuggestions } from "../lib/connectionAssistant";
 import { useDrawflowKeyboardShortcuts } from "./useDrawflowKeyboardShortcuts";
 import { useDrawflowLifecycle } from "./useDrawflowLifecycle";
 import { useInspectorState } from "./useInspectorState";
@@ -63,6 +66,22 @@ export function useDrawflowEditor({
   const [isEditorReady, setIsEditorReady] = useState(false);
   const [isCanvasEmpty, setIsCanvasEmpty] = useState(true);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [connectionAssistantSource, setConnectionAssistantSource] = useState<ConnectionAssistantSource | null>(null);
+
+  const connectionAssistantSuggestions: ConnectionAssistantSuggestion[] = useMemo(() => {
+    if (!connectionAssistantSource) {
+      return [];
+    }
+
+    return buildConnectionAssistantSuggestions({
+      nodeTemplates,
+      source: connectionAssistantSource
+    });
+  }, [connectionAssistantSource, nodeTemplates]);
+
+  const onConnectionAssistantSource = useCallback((source: ConnectionAssistantSource | null) => {
+    setConnectionAssistantSource(source);
+  }, []);
 
   const {
     selectedNodeIdRef,
@@ -286,6 +305,43 @@ export function useDrawflowEditor({
     removeConnection(editor, connection);
   }, []);
 
+  const addSuggestedNode = useCallback((suggestion: ConnectionAssistantSuggestion) => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const template = nodeTemplates[suggestion.targetNodeType];
+    if (!template) {
+      onToast(`Unknown node type: ${suggestion.targetNodeType}`);
+      return;
+    }
+
+    const nodeId = addNodeToCanvas(editor, {
+      type: suggestion.targetNodeType,
+      template,
+      container: editorContainerRef.current,
+      makeNodeMarkup
+    });
+
+    refreshEmptyState();
+    onToast(`${template.label} added from suggestion`);
+
+    try {
+      editor.addConnection(
+        suggestion.sourceNodeId,
+        nodeId,
+        suggestion.sourcePortId,
+        suggestion.targetPortId
+      );
+    } catch {
+      onToast(`${template.label} added, but auto-connect failed`);
+    }
+
+    setConnectionAssistantSource(null);
+    validateCurrentGraph();
+  }, [nodeTemplates, onToast, refreshEmptyState, validateCurrentGraph]);
+
   const onUpdateNode = useCallback(() => {
     if (!applyInspectorDraftToSelectedNode()) {
       return;
@@ -301,6 +357,7 @@ export function useDrawflowEditor({
     editorContainerRef,
     editorRef,
     connectionIndexRef,
+    nodeTemplates,
     selectedNodeIdRef,
     setSelectedNodeId,
     setIsEditorReady,
@@ -312,6 +369,7 @@ export function useDrawflowEditor({
     refreshEmptyState,
     validateCurrentGraph,
     validateConnection,
+    onConnectionAssistantSource,
     onStatus
   });
 
@@ -333,12 +391,14 @@ export function useDrawflowEditor({
     isCanvasEmpty,
     inspector,
     inspectorEnabled,
+    connectionAssistantSuggestions,
     connections,
     validationErrors,
     editorContainerRef,
     getConnectionKey,
     setInspectorField,
     addNode,
+    addSuggestedNode,
     removeSelectedNode,
     disconnectConnection,
     onUpdateNode,

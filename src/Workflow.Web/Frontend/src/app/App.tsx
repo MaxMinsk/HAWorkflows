@@ -1,19 +1,30 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "drawflow/dist/drawflow.min.css";
 import "./App.css";
 import { Toolbar } from "./components/Toolbar";
 import { PalettePanel } from "./components/PalettePanel";
 import { CanvasPanel } from "./components/CanvasPanel";
 import { InspectorPanel } from "./components/InspectorPanel";
+import { RunDetailsPanel } from "../features/runs/RunDetailsPanel";
 import { useWorkflowBuilder } from "../features/workflow/hooks/useWorkflowBuilder";
 import { McpSettingsDialog } from "../features/settings/McpSettingsDialog";
+import { useMcpSettingsDialog } from "../features/settings/useMcpSettingsDialog";
+import { createWorkflowApiClient } from "../shared/api/workflowApiClient";
+import { applyNodeStatusOverlays, clearNodeStatusOverlays } from "../features/workflow/lib/drawflowGraphAdapter";
 
 /**
  * Что: корневая композиция React-приложения.
  * Зачем: держать App максимально "тонким" и читаемым.
  * Как: собирает layout из компонентов, а stateful orchestration берет из custom hook.
+ *      apiClient и mcpSettings создаются здесь, чтобы features не импортировали друг друга напрямую.
  */
 export function App() {
+  const apiClient = useMemo(() => createWorkflowApiClient(window.localStorage), []);
+  const mcpSettings = useMcpSettingsDialog(apiClient);
+  const [isRunDetailsOpen, setIsRunDetailsOpen] = useState(false);
+  const openRunDetails = useCallback(() => setIsRunDetailsOpen(true), []);
+  const closeRunDetails = useCallback(() => setIsRunDetailsOpen(false), []);
+
   const {
     status,
     statusDotColor,
@@ -31,7 +42,6 @@ export function App() {
     runData,
     nodeTypes,
     nodeTemplates,
-    mcpSettings,
     editorContainerRef,
     setWorkflowName,
     updateInspectorField,
@@ -48,9 +58,25 @@ export function App() {
     onStop,
     onRefreshStored,
     onOpenStoredWorkflow,
+    connectionAssistantSuggestions,
     addNode,
+    addSuggestedNode,
     getConnectionKey
-  } = useWorkflowBuilder();
+  } = useWorkflowBuilder({ apiClient, mcpSettings });
+
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    if (runData.nodes.length > 0) {
+      applyNodeStatusOverlays(
+        container,
+        runData.nodes.map((n) => ({ nodeId: n.nodeId, status: n.status ?? "Pending" }))
+      );
+    } else {
+      clearNodeStatusOverlays(container);
+    }
+  }, [runData.nodes, editorContainerRef]);
 
   return (
     <div className="app-root">
@@ -89,6 +115,7 @@ export function App() {
           inspectorEnabled={inspectorEnabled}
           nodeTemplates={nodeTemplates}
           connections={connections}
+          connectionAssistantSuggestions={connectionAssistantSuggestions}
           validationErrors={validationErrors}
           runData={runData}
           getConnectionKey={getConnectionKey}
@@ -96,13 +123,22 @@ export function App() {
           onUpdateNode={onUpdateNode}
           onDeleteNode={removeSelectedNode}
           onDisconnectConnection={disconnectConnection}
-          onResumeRun={onResumeRun}
+          onAddSuggestedNode={addSuggestedNode}
+          onOpenRunDetails={openRunDetails}
         />
       </main>
 
       <div className={`toast ${toast.visible ? "visible" : ""}`} role="status" aria-live="polite">
         {toast.text}
       </div>
+
+      {isRunDetailsOpen && (
+        <RunDetailsPanel
+          runData={runData}
+          onResumeRun={onResumeRun}
+          onClose={closeRunDetails}
+        />
+      )}
 
       <McpSettingsDialog
         isOpen={mcpSettings.isOpen}

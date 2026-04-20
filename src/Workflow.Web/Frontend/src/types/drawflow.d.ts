@@ -26,6 +26,12 @@ declare module "drawflow" {
       outputClass: string,
       inputClass: string
     ): void;
+    addConnection(
+      outputId: number,
+      inputId: number,
+      outputClass: string,
+      inputClass: string
+    ): void;
     getNodeFromId(nodeId: number): any;
     updateNodeDataFromId(nodeId: number, data: any): void;
   }

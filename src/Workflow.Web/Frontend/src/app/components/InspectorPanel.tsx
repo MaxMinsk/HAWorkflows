@@ -1,7 +1,7 @@
 import React from "react";
 import { ValidationList } from "../../features/editor/ValidationList";
-import { RunTimeline } from "../../features/runs/RunTimeline";
 import type {
+  ConnectionAssistantSuggestion,
   DrawflowConnectionShape,
   InspectorState,
   NodeTemplateConfigField,
@@ -21,6 +21,7 @@ interface InspectorPanelProps {
   inspectorEnabled: boolean;
   nodeTemplates: NodeTemplatesMap;
   connections: DrawflowConnectionShape[];
+  connectionAssistantSuggestions: ConnectionAssistantSuggestion[];
   validationErrors: string[];
   runData: RunData;
   getConnectionKey: (connection: DrawflowConnectionShape) => string;
@@ -28,7 +29,8 @@ interface InspectorPanelProps {
   onUpdateNode: () => void;
   onDeleteNode: () => void;
   onDisconnectConnection: (connection: DrawflowConnectionShape) => void;
-  onResumeRun: (runId: string) => void;
+  onAddSuggestedNode: (suggestion: ConnectionAssistantSuggestion) => void;
+  onOpenRunDetails: () => void;
 }
 
 export function InspectorPanel({
@@ -36,6 +38,7 @@ export function InspectorPanel({
   inspectorEnabled,
   nodeTemplates,
   connections,
+  connectionAssistantSuggestions,
   validationErrors,
   runData,
   getConnectionKey,
@@ -43,7 +46,8 @@ export function InspectorPanel({
   onUpdateNode,
   onDeleteNode,
   onDisconnectConnection,
-  onResumeRun
+  onAddSuggestedNode,
+  onOpenRunDetails
 }: InspectorPanelProps) {
   const selectedTemplate = nodeTemplates[inspector.nodeType];
   const configFields = selectedTemplate?.configFields ?? [];
@@ -200,6 +204,32 @@ export function InspectorPanel({
         </>
       )}
 
+      {connectionAssistantSuggestions.length > 0 && (
+        <>
+          <h3>Suggested Next Nodes</h3>
+          <ul className="suggestion-list">
+            {connectionAssistantSuggestions.map((suggestion) => (
+              <li className="suggestion-item" key={suggestion.id}>
+                <div className="suggestion-item-info">
+                  <span className="suggestion-item-target">{suggestion.targetNodeLabel}</span>
+                  <span className="suggestion-item-port">
+                    {suggestion.sourcePortLabel} → {suggestion.targetPortLabel}
+                  </span>
+                  <span className="suggestion-item-reason">{suggestion.reason}</span>
+                </div>
+                <button
+                  className="suggestion-add-btn"
+                  type="button"
+                  onClick={() => onAddSuggestedNode(suggestion)}
+                >
+                  Add
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h3>Connections</h3>
       <ul className="connection-list">
         {connections.length === 0 && <li className="connection-item">No connections</li>}
@@ -218,13 +248,8 @@ export function InspectorPanel({
       <h3>Validation</h3>
       <ValidationList errors={validationErrors} />
 
-      <h3>Run Timeline</h3>
-      <RunTimeline
-        run={runData.run}
-        nodes={runData.nodes}
-        artifacts={runData.artifacts}
-        onResumeRun={onResumeRun}
-      />
+      <h3>Run</h3>
+      <RunSummaryCompact runData={runData} onOpenRunDetails={onOpenRunDetails} />
     </aside>
   );
 }
@@ -349,4 +374,42 @@ function readFieldValue(config: Record<string, unknown>, field: NodeTemplateConf
 
 function isEmptyFieldValue(value: string): boolean {
   return value.trim().length === 0;
+}
+
+function RunSummaryCompact({ runData, onOpenRunDetails }: { runData: RunData; onOpenRunDetails: () => void }) {
+  const { run, nodes, artifacts } = runData;
+  if (!run) {
+    return <div className="run-summary-compact"><span style={{ color: "var(--muted)", fontSize: 12 }}>No run data</span></div>;
+  }
+
+  const succeeded = nodes.filter((n) => (n.status ?? "").toLowerCase() === "succeeded").length;
+  const failed = nodes.filter((n) => (n.status ?? "").toLowerCase() === "failed").length;
+  const statusClass = normalizeRunStatusClass(run.status);
+
+  return (
+    <div className="run-summary-compact">
+      <div className="run-summary-status-line">
+        <span className={`timeline-status ${statusClass}`}>{run.status}</span>
+        <span style={{ fontSize: 11, color: "var(--muted)" }}>{run.runId.slice(0, 8)}</span>
+      </div>
+      <div className="run-summary-counts">
+        <span>{nodes.length} nodes</span>
+        <span style={{ color: "#16a34a" }}>{succeeded} ok</span>
+        {failed > 0 && <span style={{ color: "#dc2626" }}>{failed} fail</span>}
+        <span>{artifacts.length} artifacts</span>
+      </div>
+      {run.error && <div style={{ color: "#7f1d1d", fontSize: 11, marginTop: 2 }}>{run.error}</div>}
+      <button className="btn" type="button" onClick={onOpenRunDetails} style={{ marginTop: 4 }}>
+        Open Run Details
+      </button>
+    </div>
+  );
+}
+
+function normalizeRunStatusClass(status: string): string {
+  const lowered = status.toLowerCase();
+  if (lowered === "running" || lowered === "pending") return "running";
+  if (lowered === "succeeded") return "succeeded";
+  if (lowered === "failed") return "failed";
+  return "pending";
 }

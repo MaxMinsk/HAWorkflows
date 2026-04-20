@@ -299,11 +299,36 @@ export interface DrawflowConnectionShape {
   input_class: string;
 }
 
+export interface DrawflowConnectionStartShape {
+  output_id: number | string;
+  output_class: string;
+}
+
 export interface InspectorState {
   nodeId: string;
   nodeType: string;
   nodeName: string;
   nodeConfigText: string;
+}
+
+export interface ConnectionAssistantSource {
+  sourceNodeId: number;
+  sourceNodeType: string;
+  sourcePortId: string;
+}
+
+export interface ConnectionAssistantSuggestion {
+  id: string;
+  sourceNodeId: number;
+  sourceNodeType: string;
+  sourceNodeLabel: string;
+  sourcePortId: string;
+  sourcePortLabel: string;
+  targetNodeType: string;
+  targetNodeLabel: string;
+  targetPortId: string;
+  targetPortLabel: string;
+  reason: string;
 }
 
 export interface WorkflowApiClient {
@@ -479,6 +504,7 @@ export interface WorkflowBuilderViewModel {
   storedWorkflows: StoredWorkflowSummary[];
   inspector: InspectorState;
   inspectorEnabled: boolean;
+  connectionAssistantSuggestions: ConnectionAssistantSuggestion[];
   connections: DrawflowConnectionShape[];
   validationErrors: string[];
   runData: RunData;
@@ -489,6 +515,7 @@ export interface WorkflowBuilderViewModel {
   mcpSettings: McpSettingsDialogState;
   updateInspectorField: (field: keyof InspectorState, value: string) => void;
   addNode: (type: string, x?: number, y?: number) => void;
+  addSuggestedNode: (suggestion: ConnectionAssistantSuggestion) => void;
   removeSelectedNode: () => void;
   getConnectionKey: (connection: DrawflowConnectionShape) => string;
   disconnectConnection: (connection: DrawflowConnectionShape) => void;
