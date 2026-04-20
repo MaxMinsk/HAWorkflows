@@ -85,6 +85,7 @@ var agentExecutorOptions = builder.Configuration.GetSection("WorkflowAgents").Ge
                            ?? new AgentExecutorOptions();
 builder.Services.AddSingleton(agentExecutorOptions);
 builder.Services.AddSingleton<IAgentExecutor, EchoAgentExecutor>();
+builder.Services.AddSingleton<IAgentExecutor, LocalAgentExecutor>();
 builder.Services.AddSingleton<IAgentExecutorCatalog, AgentExecutorCatalog>();
 var mcpToolInvokerOptions = builder.Configuration.GetSection("WorkflowMcp").Get<McpToolInvokerOptions>()
                             ?? new McpToolInvokerOptions();
